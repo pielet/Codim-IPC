@@ -1,0 +1,12 @@
+.idea
+.clang-format
+.vscode
+cmake-build-debug
+cmake-build-release
+build
+.DS_Store
+settings.json
+__pycache__/
+Projects/FEMShell/output
+*.pyc
+*.so
