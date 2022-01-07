@@ -395,7 +395,7 @@ void Update_Normal_Flow_Neumann(
 }
 
 template <class T, int dim>
-T Update_Material_With_Tex_Shell(
+void Update_Material_With_Tex_Shell(
     const std::string& filePath, 
     int vIndStart, int triIndStart, 
     T rho0, T thickness,

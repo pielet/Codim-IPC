@@ -30,4 +30,6 @@ using SCALAR_STORAGE = BASE_STORAGE<T>;
 template<class T, int dim>
 using VECTOR_STORAGE = BASE_STORAGE<VECTOR<T, dim>>;
 
+using V3dStorage = VECTOR_STORAGE<double, 3>;
+
 }

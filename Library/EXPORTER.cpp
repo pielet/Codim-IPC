@@ -11,6 +11,9 @@
 #include <Storage2/PRELUDE.hpp>
 #include <pybind11/pybind11.h>
 
+#include <Control/CONTROL_UTILS.h>
+#include <Control/CONTROL.h>
+
 namespace py = pybind11;
 namespace JGSL {
 
@@ -33,6 +36,10 @@ PYBIND11_MODULE(JGSL, m) {
     Export_FEM(FEM_m);
     Export_SPARSE_MATRIX(m);
     PARAMETER::Export(m);
+
+    py::module Control_m = m.def_submodule("Control", "A submodule of trajectory optimization");
+    Export_Control_Utils(Control_m);
+    Export_Control(Control_m);
 }
 
 }

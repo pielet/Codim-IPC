@@ -1,5 +1,6 @@
 #pragma once
 
+#include <FEM/DATA_TYPE.h>
 #include <FEM/DEFORMATION_GRADIENT.h>
 #include <FEM/ELEM_TO_NODE.h>
 #include <FEM/BOUNDARY_CONDITION.h>
@@ -25,7 +26,7 @@ template <class EX_SPACE, class MEM_SPACE, std::size_t BIN_SIZE> void Export_Sto
     // Basic Single Element, Double Precision Float Storages
     py::class_<BASE_STORAGE<double>>(m, "SdStorage").def(py::init());
     py::class_<BASE_STORAGE<VECTOR<double, 2>>>(m, "V2dStorage").def(py::init());
-    py::class_<BASE_STORAGE<VECTOR<double, 3>>>(m, "V3dStorage").def(py::init());
+    py::class_<BASE_STORAGE<VECTOR<double, 3>>>(m, "V3dStorage").def(py::init()).def_readonly("size", &BASE_STORAGE<VECTOR<double, 3>>::size);
     py::class_<BASE_STORAGE<VECTOR<double, 4>>>(m, "V4dStorage").def(py::init());
     py::class_<BASE_STORAGE<MATRIX<double, 2>>>(m, "M2dStorage").def(py::init());
     py::class_<BASE_STORAGE<MATRIX<double, 3>>>(m, "M3dStorage").def(py::init());

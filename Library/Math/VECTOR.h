@@ -239,6 +239,10 @@ public:
         for (int i = 0; i < dim; ++i) v(i) = (*this)(i);
         return v;
     }
+
+    JGSL_FORCE_INLINE void from_eigen(const Eigen::Matrix<T, dim, 1>& v) {
+        for (int i = 0;i < dim; ++i) (*this)(i) = v(i);
+    }
 };
 template <class T, int dim> JGSL_FORCE_INLINE VECTOR<T, dim> operator*(T a, const VECTOR<T, dim>& o) { return o * a; }
 template <class T> JGSL_FORCE_INLINE T det(const VECTOR<T, 2>& col0, const VECTOR<T, 2>& col1) { 
