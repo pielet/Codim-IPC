@@ -36,6 +36,7 @@ class LoopyOpt:
 		self.dt = self.sim.dt
 		self.n_frame = self.sim.frame_num
 		self.n_vert = self.sim.n_vert
+		self.n_DBC = self.sim.n_DBC
 		self.M = self.sim.massMatrix
 		
 		# optimization params
@@ -50,6 +51,7 @@ class LoopyOpt:
 		# storage
 		self.X0 = Storage.V3dStorage()
 		self.X1 = Storage.V3dStorage()
+		self.init_DBC = Storage.V4dStorage()
 		self.one_frame = Storage.V3dStorage()
 		self.trajectory = Storage.V3dStorage()
 		self.control_force = Storage.V3dStorage()
@@ -93,12 +95,15 @@ class LoopyOpt:
 		Control.Fill(self.descent_dir, self.n_vert * self.n_frame)
 		Control.Fill(self.tentative, self.n_vert * self.n_frame)
 
+		Control.Fill(self.init_DBC, self.n_DBC)
+
 		init_folder = self.output_folder + f"init/"
 		make_directory(init_folder)
 		self.sim.output_folder = init_folder
 
 		# compute initial loss
 		Control.Copy(self.sim.X, self.X0)
+		Control.Copy(self.sim.DBC, self.init_DBC)
 		if self.opt_param == "force":
 			self.forward(self.control_force)
 			self.loss = self.compute_force_loss(self.control_force, self.trajectory)
@@ -128,9 +133,10 @@ class LoopyOpt:
 	def forward(self, control_force):
 		""" update to self.trajectory """
 		print("[start forward]")
-		self.t = 0.0
+		self.sim.t = 0.0
 		Control.Copy(self.X0, self.sim.X)
 		Control.ZeroVelocity(self.sim.nodeAttr)
+		Control.Copy(self.init_DBC, self.sim.DBC)
 
 		self.sim.step() # skip X1
 		Control.Copy(self.sim.X, self.X1)

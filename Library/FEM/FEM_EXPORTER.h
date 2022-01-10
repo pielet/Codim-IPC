@@ -43,6 +43,7 @@ template <class EX_SPACE, class MEM_SPACE, std::size_t BIN_SIZE> void Export_Sto
     // advanced moving boundary condition storage
     py::class_<BASE_STORAGE<VECTOR<int, 2>, VECTOR<double, 2>, VECTOR<double, 2>, VECTOR<double, 2>, double>>(m, "V2iV2dV2dV2dSdStorage").def(py::init());
     py::class_<BASE_STORAGE<VECTOR<int, 2>, VECTOR<double, 3>, VECTOR<double, 3>, VECTOR<double, 3>, double>>(m, "V2iV3dV3dV3dSdStorage").def(py::init());
+    py::class_<BASE_STORAGE<double, double, double, VECTOR<int, 2>, VECTOR<double, 3>, VECTOR<double, 3>, VECTOR<double, 3>, double>>(m, "DBCMotion").def(py::init());
     // Advanced Particle Storages
     py::class_<BASE_STORAGE<VECTOR<float, 2>, VECTOR<float, 2>, float>>(m, "XVm2f").def(py::init());
     py::class_<BASE_STORAGE<VECTOR<float, 3>, VECTOR<float, 3>, float>>(m, "XVm3f").def(py::init());

@@ -3,6 +3,7 @@
 #include <pybind11/pybind11.h>
 #include <Math/CSR_MATRIX.h>
 #include <FEM/DATA_TYPE.h>
+#include <Control/BOUNDARY_CONDITION.h>
 
 namespace JGSL {
 
@@ -182,16 +183,22 @@ void Add_Identity(std::vector<Eigen::Triplet<T>>& triplets, int base_i, int base
 void Export_Control_Utils(py::module& m)
 {
 	m.def("Fill", &Fill<double, 3>);
+	m.def("Fill", &Fill<double, 4>);
 	m.def("ZeroVelocity", &ZeroVelocity<double, 3>);
 	m.def("GetFrame", &GetFrame<double, 3>);
 	m.def("SetFrame", &SetFrame<double, 3>);
 	m.def("Reduce", &Reduce<double, 3>);
 	m.def("Axpy", &Axpy<double, 3>);
 	m.def("Copy", &Copy<double, 3>);
+	m.def("Copy", &Copy<double, 4>);
 	m.def("Scale", &Scale<double, 3>);
 	m.def("Read", &Read<double, 3>);
 	m.def("Write", &Write<double, 3>);
 	m.def("Print", &Print<double, 3>);
+
+	m.def("Set_Dirichlet", &Set_Dirichlet<double, 3>);
+    m.def("Add_DBC_Motion", &Add_DBC_Motion<double, 3>);
+    m.def("Update_Dirichlet", &Update_Dirichlet<double, 3>);
 }
 
 }

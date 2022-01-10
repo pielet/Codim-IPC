@@ -2,8 +2,8 @@
 
 #include <pybind11/pybind11.h>
 #include <Utils/PROFILER.h>
-#include <FEM/BOUNDARY_CONDITION.h>
 #include <FEM/Shell/INC_POTENTIAL.h>
+#include <Control/BOUNDARY_CONDITION.h>
 #include <Control/CONTROL_UTILS.h>
 #include <Control/IMPLICIT_EULER.h>
 
@@ -594,7 +594,7 @@ void ComputeTrajectoryGradient(
 
 	SetZero(gradient);
 	std::vector<Eigen::Triplet<T>> triplets;
-	std::vector<bool> global_BDCb(n_frame * n_vert, false);
+	std::vector<bool> global_DBCb(n_frame * n_vert, false);
 
 //#pragma omp parallel for
 	for (int i = 0; i < n_frame; ++i) {
@@ -710,7 +710,7 @@ void ComputeTrajectoryGradient(
 				if (!DBCDisp[dim * vI + d]) fixed = false;
 			}
 			DBCb[vI] = true;
-			global_BDCb[i * n_vert + vI] = true;
+			global_DBCb[i * n_vert + vI] = true;
 		});
 		T DBCStiff = 0; // DBCStiff == 1 && DBCb_fixed all false => DO NOT project hessian
 
@@ -877,17 +877,18 @@ void ComputeTrajectoryGradient(
 		if constexpr (!SC) {
 			// project A for loopy constrain
 			for (int i = 0; i < n_vert; ++i) {
-				global_BDCb[(n_frame - 2) * n_vert + i] = true;
-				global_BDCb[(n_frame - 1) * n_vert + i] = true;
+				global_DBCb[(n_frame - 2) * n_vert + i] = true;
+				global_DBCb[(n_frame - 1) * n_vert + i] = true;
 			}
 		}
 
-		A.Project_DBC(global_BDCb, 3);
+		A.Project_DBC(global_DBCb, 3);
 
 		printf("finish Gauss-Newton Construct_From_Triplet\n");
 
 		{
 			TIMER_FLAG("linear solve");
+#define AMGCL_LINEAR_SOLVER
 #ifdef AMGCL_LINEAR_SOLVER
 			// AMGCL
 			std::memset(sol.data(), 0, sizeof(T) * sol.size());
