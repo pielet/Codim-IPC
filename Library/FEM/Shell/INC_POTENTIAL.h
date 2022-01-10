@@ -316,7 +316,8 @@ void Compute_IncPotential_Hessian(
     const std::vector<T>& stitchRatio,
     T k_stitch,
     bool projectSPD,
-    CSR_MATRIX<T>& sysMtr)
+    CSR_MATRIX<T>& sysMtr,
+    bool projectDBC=true)
 {
     std::vector<Eigen::Triplet<T>> triplets;
 
@@ -384,13 +385,14 @@ void Compute_IncPotential_Hessian(
         TIMER_FLAG("add mass matrix");
         sysMtr.Get_Matrix() += M.Get_Matrix();
     }
-    if (!DBCStiff) {
-        // project Matrix for Dirichlet boundary condition
-        sysMtr.Project_DBC(DBCb, dim);
-        std::cout << "project Matrix for Dirichlet boundary condition" << std::endl;
-    }
-    else {
-        sysMtr.Project_DBC(DBCb_fixed, dim);
+    if (projectDBC) {
+        if (!DBCStiff) {
+            // project Matrix for Dirichlet boundary condition
+            sysMtr.Project_DBC(DBCb, dim);
+        }
+        else {
+            sysMtr.Project_DBC(DBCb_fixed, dim);
+        }
     }
 }
 

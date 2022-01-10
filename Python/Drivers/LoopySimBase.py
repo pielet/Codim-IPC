@@ -211,10 +211,8 @@ class LoopySimBase:
 
     def add_shell_3D(self, filePath, translate, rotCenter, rotAxis, rotDeg): # 3D
         FEM.DiscreteShell.Add_Shell(filePath, translate, Vector3d(1, 1, 1), rotCenter, rotAxis, rotDeg, self.X, self.Elem, self.compNodeRange)
-        self.n_vert = 0
-        for n in self.compNodeRange:
-            self.n_vert += n
-        print("n_vert:", self.n_vert)
+        self.n_vert = self.compNodeRange[-1]
+        print(f"add component, #total_vertex_num={self.n_vert}")
 
     def initialize(self, clothI, b_SL, membEMult=0.01, bendEMult=1, b_gravity=True):
         MeshIO.Append_Attribute(self.X, self.X0)
