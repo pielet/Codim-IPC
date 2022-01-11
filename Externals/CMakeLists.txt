@@ -5,8 +5,8 @@ include(ExternalProject)
 
 find_package(CUDA QUIET)
 if(CUDA_FOUND)
-  set(CUDA_NVCC_FLAGS ${CUDA_NVCC_FLAGS};${GENCODE};-lineinfo;--expt-extended-lambda;--expt-relaxed-constexpr;--default-stream per-thread PARENT_SCOPE)
-  set(CUDA_SEPARABLE_COMPILATION ON PARENT_SCOPE)
+	set(CUDA_NVCC_FLAGS ${CUDA_NVCC_FLAGS};${GENCODE};-lineinfo;--expt-extended-lambda;--expt-relaxed-constexpr;--default-stream per-thread)
+	set(CUDA_SEPARABLE_COMPILATION ON)
 endif()
 
 download_project(
@@ -82,4 +82,3 @@ download_project(
   UPDATE_DISCONNECTED 1
 )
 add_subdirectory(${Kokkos_kernels_SOURCE_DIR} ${Kokkos_kernels_BINARY_DIR})
-set(CUDA_FOUND ${CUDA_FOUND} PARENT_SCOPE)

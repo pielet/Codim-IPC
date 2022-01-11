@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.2 FATAL_ERROR)
+cmake_minimum_required(VERSION 3.8 FATAL_ERROR)
 
 if (NOT APPLE)
 set(CMAKE_C_COMPILER /usr/bin/gcc)
@@ -15,6 +15,9 @@ set(ENABLE_AMGCL_CUDA ON)
 add_definitions(-DSTORAGE_ENABLED_OPENMP )
 if (ENABLE_FEM_SHELL)
   add_definitions(-DENABLE_FEM_SHELL)
+endif()
+if (ENABLE_AMGCL_CUDA)
+  add_definitions(-DENABLE_AMGCL_CUDA)
 endif()
 
 set(CMAKE_CXX_STANDARD 17)
@@ -53,6 +56,12 @@ if(LINEAR_SOLVER STREQUAL "CHOLMOD")
   set(JGSL_DEPS partio Kokkos::kokkos cabanacore eigen amgcl TBB::tbb SuiteSparse::SuiteSparse)
 else()
   set(JGSL_DEPS partio Kokkos::kokkos cabanacore eigen amgcl)
+endif()
+
+if (ENABLE_AMGCL_CUDA)
+	add_definitions(-DVEXCL_BACKEND_CUDA)
+	include_directories(${VexCL_SOURCE_DIR})
+	enable_language(CUDA)
 endif()
 
 target_include_directories(JGSL SYSTEM PUBLIC ${EIGEN3_INCLUDE_DIR} ${Boost_INCLUDE_DIRS})

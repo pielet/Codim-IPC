@@ -19,12 +19,15 @@
 #include <amgcl/relaxation/runtime.hpp>
 #include <amgcl/preconditioner/runtime.hpp>
 #include <amgcl/value_type/static_matrix.hpp>
+#undef ENABLE_AMGCL_CUDA
 #ifdef ENABLE_AMGCL_CUDA
 #include <amgcl/backend/vexcl.hpp>
+#include <amgcl/backend/vexcl_static_matrix.hpp>
 #endif
 #include <amgcl/adapter/crs_tuple.hpp>
 #include <amgcl/adapter/reorder.hpp>
 #include <amgcl/adapter/eigen.hpp>
+#include <amgcl/adapter/block_matrix.hpp>
 #include <amgcl/profiler.hpp>
 
 #include <pybind11/pybind11.h>
@@ -64,7 +67,20 @@ boost::property_tree::ptree Default_FEM_Params(){
     return prm;
 }
 
-template <class T>
+boost::property_tree::ptree Gauss_Newton_Params(int block_size){
+    boost::property_tree::ptree prm;
+    prm.put("precond.class", "amg");
+    prm.put("precond.coarsening.type", "smoothed_aggregation");
+    prm.put("precond.coarsening.aggr.block_size", block_size);
+    prm.put("precond.coarsening.aggr.eps_strong", 0.0);
+    prm.put("precond.relax.type", "gauss_seidel");
+    prm.put("solver.type", "lgmres");
+    prm.put("solver.M", 100);
+    //TODO: blockwise backend
+    return prm;
+}
+
+template <class T, int dim>
 std::tuple<size_t, double, double> Solve(CSR_MATRIX<T> &A, const std::vector<T> &residual, std::vector<T> &x, T rel_tol=-1, int max_iter=-1, boost::property_tree::ptree prm=Default_Params(), bool verbose=false) {
     if (rel_tol > 0) 
         prm.put("solver.tol", rel_tol); // relative
@@ -110,7 +126,6 @@ std::tuple<size_t, double, double> Solve(CSR_MATRIX<T> &A, const std::vector<T> 
         size_t iters;
         double resid;
 
-        
         std::vector<T> F(residual.data(), residual.data() + residual.size());
         std::vector<T> X(x.data(), x.data() + x.size());
 
@@ -140,9 +155,12 @@ std::tuple<size_t, double, double> Solve(CSR_MATRIX<T> &A, const std::vector<T> 
         vex::Context ctx(vex::Filter::Env);
         if (verbose)
             std::cout << "Computation Context: " << ctx;
+        vex::scoped_program_header h1(ctx, amgcl::backend::vexcl_static_matrix_declaration<T, dim>());
         bprm.q = ctx;
         Solver solver(A.Get_Matrix(), prm, bprm);
 #else
+        // typedef amgcl::static_matrix<T, dim, dim> mat_type;
+        // auto Ab = amgcl::adapter::block_matrix<mat_type>(A.Get_Matrix());
         Solver solver(A.Get_Matrix(), prm);
 #endif
         if(verbose)
@@ -178,9 +196,9 @@ void Write_Matrix(std::string filename, CSR_MATRIX<T> A){
     amgcl::io::mm_write("matrix.amgcl", A);
 }
 
-template <class T>
+template <class T, int dim>
 void Export_AMGCL_Impl(py::module& m) { 
-    m.def("Solve", &Solve<T>);
+    m.def("Solve", &Solve<T, dim>);
     m.def("Params", 
         [](pybind11::dict params_dict) {
             boost::property_tree::ptree params = Default_Params();
@@ -199,8 +217,8 @@ void Export_AMGCL(py::module& m) {
                 boost::property_tree::json_parser::write_json(oss, pt);
                 return oss.str();
             });
-    Export_AMGCL_Impl<float>(m);
-    Export_AMGCL_Impl<double>(m);
+    Export_AMGCL_Impl<float, 3>(m);
+    Export_AMGCL_Impl<double, 3>(m);
 }
 
 }

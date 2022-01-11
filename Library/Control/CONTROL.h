@@ -64,7 +64,9 @@ void ComputeAdjointVector(
 	std::vector<T> sol(n_vert * dim);
 
 	for (int i = n_frame - 1; i >= 0; --i) {
+#ifdef VERBOSE
 		std::cout << "============== adjoint vector " << i << " =============\n";
+#endif
 		
 		{
 			TIMER_FLAG("Compute Hessian");
@@ -173,7 +175,9 @@ void ComputeAdjointVector(
 				}
 			}
 		}
+#ifdef VERBOSE
 		std::cout << "surface primitives found" << std::endl;
+#endif
 
 		// prepare DBC ===============================================================================================
 		std::vector<bool> DBCb(X.size, false);
@@ -195,7 +199,9 @@ void ComputeAdjointVector(
 			DBCb[vI] = true;
 		});
 		T DBCStiff = 0; // we don't compute control force on boundary
+#ifdef VERBOSE
 		std::cout << "DBC handled" << std::endl;
+#endif
 
 		// prepare collision sets =====================================================================================
 		std::vector<VECTOR<int, dim + 1>> constraintSet;
@@ -216,7 +222,9 @@ void ComputeAdjointVector(
 				}
 			}
 		}
+#ifdef VERBOSE
 		std::cout << "collision set found" << std::endl;
+#endif
 
 		// finally, compute hessian ================================================================================	
 		Compute_IncPotential_Hessian<T, dim, KL, elasticIPC, flow>(Elem, h, edge2tri, edgeStencil, edgeInfo, thickness, bendingStiffMult, fiberStiffMult, fiberLimit,
@@ -227,7 +235,9 @@ void ComputeAdjointVector(
 			stitchInfo, stitchRatio, k_stitch, true, sysMtr);
 
 		}
+#ifdef VERBOSE
 		std::cout << "hessian computed" << std::endl;
+#endif
 
 		// prepare rhs
 		{
@@ -263,7 +273,9 @@ void ComputeAdjointVector(
 				L[dbcI(0) * dim + d] = T(0);
 			}
 		});
+#ifdef VERBOSE
 		std::cout << "RHS prepared and projected" << std::endl;
+#endif
 		}
 
 		// linear solve
@@ -271,17 +283,15 @@ void ComputeAdjointVector(
 		TIMER_FLAG("Linear Solve");
 
 		std::vector<T> rhs(L.data(), L.data() + L.size());
-#ifdef AMGCL_LINEAR_SOLVER
-		std::memset(sol.data(), 0, sizeof(T) * sol.size());
-		Solve(sysMtr, rhs, sol, 1.0e-5, 1000, Default_FEM_Params<dim>(), true);
-#else
+
 		bool solverSucceed = Solve_Direct(sysMtr, rhs, sol);
 		if (!solverSucceed) {
 			printf("Hessian not SPD in frame %d\n", i);
 			exit(-1);
 		}
-#endif
+#ifdef VERBOSE
 		std::cout << "linear solver finished" << std::endl;
+#endif
 		}
 
 		L2 = L1;
@@ -552,7 +562,7 @@ bool ComputeLoopyLoss(
 
 template <class T, int dim, bool SC, bool GN, bool KL=false, bool elasticIPC=false, bool flow=false>
 void ComputeTrajectoryGradient(
-	int n_vert, int n_frame, T h, int p, T epsilon,
+	int n_vert, int n_frame, T h, int p, T epsilon, T CG_iter_ratio, bool use_cg,
 	VECTOR_STORAGE<T, dim + 1>& DBC,
 	MESH_ELEM<dim - 1>& Elem,
 	const std::vector<VECTOR<int, 2>>& seg,
@@ -888,18 +898,19 @@ void ComputeTrajectoryGradient(
 
 		{
 			TIMER_FLAG("linear solve");
-#define AMGCL_LINEAR_SOLVER
-#ifdef AMGCL_LINEAR_SOLVER
-			// AMGCL
-			std::memset(sol.data(), 0, sizeof(T) * sol.size());
-			Solve(A, rhs, sol, 1.0e-5, 1000, Default_FEM_Params<dim>(), true);
-#else
-			// direct factorization
-			if(!Solve_Direct(A, rhs, sol)) {
-				printf("Hessian not SPD\n");
-				exit(-1);
+
+			if (use_cg) {
+				// AMGCL
+				std::memset(sol.data(), 0, sizeof(T) * sol.size());
+				Solve<T, dim>(A, rhs, sol, 1.0e-5, CG_iter_ratio * n_frame * n_vert * dim, Default_FEM_Params<dim>(), true);
 			}
-#endif
+			else {
+				// direct factorization
+				if(!Solve_Direct(A, rhs, sol)) {
+					printf("Hessian not SPD\n");
+					exit(-1);
+				}
+			}
 		}
 
 		descent_dir.Par_Each([&](int idx, auto data) {

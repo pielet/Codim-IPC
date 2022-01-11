@@ -134,11 +134,13 @@ void Update_Dirichlet(
         }
         T angVelDeg = cubic_ease_func(cur_t, begin, end, ease_ratio, angle);
 
+#ifdef VERBOSE
         if (cur_t < end && cur_t > begin) {
             if constexpr (dim == 3) {
                 printf("step DBC: velocity (%f, %f, %f) angle_velocity: %f\n", v[0], v[1], v[2], angVelDeg);
             }
         }
+#endif
 
         //TODO: parallel the following loop
         for (int i = range[0]; i < range[1]; ++i) {

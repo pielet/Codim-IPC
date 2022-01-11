@@ -3,7 +3,7 @@ sys.path.insert(0, "../../Python")
 import Drivers
 from JGSL import *
 
-b_opt = False
+b_opt = True
 
 if __name__ == "__main__":
     sim = Drivers.LoopySimBase("double", 3, b_opt)

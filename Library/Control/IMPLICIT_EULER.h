@@ -101,7 +101,9 @@ void LineSearch(
     if (withCollision) {
         Compute_Intersection_Free_StepSize<T, dim, false, elasticIPC>(X, boundaryNode, boundaryEdge, boundaryTri, 
             particle, rod, NNExclusion, codimBNStartInd, DBCb, sol, thickness, alpha); // CCD
+#ifdef VERBOSE
         printf("intersection free step size = %le\n", alpha);
+#endif
     }
     feasibleAlpha = alpha;
     do {
@@ -147,9 +149,13 @@ void LineSearch(
             }
         }
         alpha /= 2.0;
+#ifdef VERBOSE
         printf("E %le, Eprev %le, alpha %le, valid %d\n", E, Eprev, alpha * 2, valid ? 1 : 0);
+#endif
     } while (E > Eprev || !valid);
+#ifdef VERBOSE
     printf("[line-search] alpha = %le\n", alpha * 2.0);
+#endif
     Eprev = E;
 }
 
@@ -229,7 +235,9 @@ int Step(
                 x[2] += h * v[2] + h * h * a[id * dim + 2];
             }
         });
+#ifdef VERBOSE
         std::cout << "Xn and Xtilde prepared" << std::endl;
+#endif
     }
 
     // compute contact primitives and areas ========================================================================================================
@@ -298,7 +306,9 @@ int Step(
             }
         }
     }
+#ifdef VERBOSE
     std::cout << "surface primitives found" << std::endl;
+#endif
 
     // set Dirichlet boundary condition on X ====================================================================================================
     // input: X, DBC
@@ -332,14 +342,18 @@ int Step(
     if (withCollision) {
         Compute_Intersection_Free_StepSize<T, dim, false, elasticIPC>(X, boundaryNode, boundaryEdge, boundaryTri, 
             particle, rod, NNExclusion, codimBNStartInd, DBCb, DBCDisp, thickness, DBCAlpha);
+#ifdef VERBOSE
         printf("DBCAlpha under contact: %le\n", DBCAlpha);
+#endif
     }
     // determine DBC alpha: strain limiting / fibber (aniso) / tet non degenerate ------------------------------------------
     if (kappa_s[0] > 0 || fiberStiffMult[0] > 0) {
         if (Elem.size) {
             T maxs, avgs, minc, avgc;
             Compute_Max_And_Avg_Stretch(Elem, staticSolve ? 1.0 : h, fiberStiffMult, DBCb, X, nodeAttr, elemAttr, elasticityAttr, maxs, avgs, minc, avgc);
+#ifdef VERBOSE
             printf("maxs = %le, avgs = %le, minc = %le, avgc = %le\n", maxs, avgs, minc, avgc);
+#endif
         }
         
         bool valid = false;
@@ -379,9 +393,13 @@ int Step(
             if (!valid) {
                 DBCAlpha /= 2.0;
             }
+#ifdef VERBOSE
             printf("backtracking DBCAlpha for inextensibility: %le\n", DBCAlpha);
+#endif
         } while (!valid);
+#ifdef VERBOSE
         printf("DBCAlpha under inextensibility: %le\n", DBCAlpha);
+#endif
         Xn.deep_copy_to(X);
     }
     // determine DBC update type -----------------------------------------------------------------------
@@ -398,10 +416,14 @@ int Step(
                 x(2) = dbcI(3);
             }
         });
+#ifdef VERBOSE
         printf("DBC handled\n");
+#endif
     }
     else {
+#ifdef VERBOSE
         printf("moved DBC by %le, turn on Augmented Lagrangian\n", DBCAlpha);
+#endif
         DBCStiff = 1e6;
         Compute_DBC_Dist2(Xn, DBC, DBCPenaltyXn);
     }
@@ -425,7 +447,9 @@ int Step(
     std::vector<Eigen::Matrix<T, dim - 1, 1>> closestPoint;
     std::vector<Eigen::Matrix<T, dim, dim - 1>> tanBasis;
     std::vector<T> normalForce;
+#ifdef VERBOSE
     printf("computing initial energy\n");
+#endif
     if (withCollision) {
         Compute_Constraint_Set<T, dim, false, elasticIPC>(X, nodeAttr, boundaryNode, boundaryEdge, boundaryTri, 
             particle, rod, NNExclusion, BNArea, BEArea, BTArea, codimBNStartInd, DBCb, dHat2, thickness, false, constraintSet, constraintSetPTEE, stencilInfo);
@@ -451,8 +475,9 @@ int Step(
     if (DBCStiff) {
         Compute_DBC_Energy(X, nodeAttr, DBC, DBCStiff, Eprev);
     }
-
+#ifdef VERBOSE
     printf("entering Newton loop\n");
+#endif
     std::deque<T> resRecord, MDBCProgressI;
     int fricIterI = 0;
     std::vector<VECTOR<T, 2>> strain_prev;
@@ -482,7 +507,9 @@ int Step(
                 auto &[dbcI] = data;
                 std::get<FIELDS<MESH_NODE_ATTR<T, dim>>::g>(nodeAttr.Get_Unchecked(dbcI(0))).setZero();
             });
+#ifdef VERBOSE
             std::cout << "project rhs for Dirichlet boundary condition " << DBC.size << std::endl;
+#endif
         }
 
         nodeAttr.Par_Each([&](int id, auto data) {
@@ -510,7 +537,9 @@ int Step(
             TIMER_FLAG("linearSolve");
 
             if (useGD) {
+#ifdef VERBOSE
                 printf("use gradient descent\n");
+#endif
                 std::memcpy(sol.data(), rhs.data(), sizeof(T) * rhs.size());
             }
             else {
@@ -604,7 +633,9 @@ int Step(
         if (constraintSet.size()) {
             T minDist2;
             Compute_Min_Dist2<T, dim, elasticIPC>(X, constraintSet, thickness, dist2, minDist2);
+#ifdef VERBOSE
             printf("minDist2 = %le, kappa = %le (max %le)\n", minDist2, kappa[0], kappa[1]);
+#endif
         }
         constraintSet_prev = constraintSet;
         dist2_prev = dist2;
@@ -619,7 +650,9 @@ int Step(
                     minSLSlack = SLSlack;
                 }
             }
+#ifdef VERBOSE
             printf("minSLSlack = %le, kappa_s = %le\n", minSLSlack, kappa_s[0]);
+#endif
             
             bool updateKappa_s = 0;
             if (strain_prev.size()) {
@@ -669,7 +702,11 @@ int Step(
         maxRes /= (staticSolve ? 1 : h);
         L2Norm = std::sqrt(L2Norm / (sol.size() / dim - DBC.size));
         L2Norm /= (staticSolve ? 1 : h);
-        printf("[PNIter%d]: Newton res = %le, tol = %le\n", PNIter++, L2Norm, NewtonTol);
+
+#ifdef VERBOSE
+        printf("[PNIter%d]: Newton res = %le, tol = %le\n", PNIter, L2Norm, NewtonTol);
+#endif
+        PNIter += 1;
 
         FILE *out = fopen((outputFolder + "/residual.txt").c_str(), "a+");
         fprintf(out, "%d %le %le %le %le\n", PNIter, avgResMag, maxRes, Eprev, L2Norm);
@@ -687,7 +724,6 @@ int Step(
 
         if (alpha * 2 < 1e-8 && feasibleAlpha > 1e-8) {
             if (!useGD) {
-                printf("change to gd\n");
                 useGD = true;
                 Eigen::VectorXd pe(sol.size()), mge(rhs.size());
                 std::memcpy(pe.data(), sol.data(), sizeof(T) * sol.size());
@@ -698,7 +734,9 @@ int Step(
                     std::sqrt((sysMtr.Get_Matrix() * pe - mge).squaredNorm() / mge.squaredNorm()));
             }
             else {
+#ifdef VERBOSE
                 printf("GD tiny step size!\n");
+#endif
             }
         }
         else {
@@ -709,7 +747,9 @@ int Step(
             T penaltyCur = 0;
             Compute_DBC_Dist2(X, DBC, penaltyCur);
             T progress = 1 - std::sqrt(penaltyCur / DBCPenaltyXn);
+#ifdef VERBOSE
             printf("MDBC progress: %le, DBCStiff %le\n", progress, DBCStiff);
+#endif
 
             MDBCProgressI.emplace_back(progress);
             if (MDBCProgressI.size() > 4) {
@@ -741,7 +781,9 @@ int Step(
                             Compute_Friction_Potential(X, Xn, fricConstraintSet, closestPoint, tanBasis, normalForce, epsv2 * h * h, mu, Eprev);
                         }
                         Compute_DBC_Energy(X, nodeAttr, DBC, DBCStiff, Eprev);
+#ifdef VERBOSE
                         printf("updated DBCStiff to %le\n", DBCStiff);
+#endif
                     }
                 }
 
@@ -758,8 +800,9 @@ int Step(
                 if (withCollision && mu > 0) {
                     Compute_Friction_Potential(X, Xn, fricConstraintSet, closestPoint, tanBasis, normalForce, epsv2 * h * h, mu, Eprev);
                 }
-
+#ifdef VERBOSE
                 printf("DBC moved to target, turn off Augmented Lagrangian\n");
+#endif
             }
         }
 
@@ -837,7 +880,9 @@ int Step(
                         }
                         L2Norm = std::sqrt(L2Norm / (sol.size() / dim - DBC.size));
                         L2Norm /= (staticSolve ? 1 : h);
+#ifdef VERBOSE
                         printf("friction updated Newton res = %le, tol = %le\n", L2Norm, NewtonTol);
+#endif
                         if (L2Norm > NewtonTol) {
                             Compute_IncPotential<T, dim, KL, elasticIPC, flow>(Elem, h, edge2tri, edgeStencil, edgeInfo, thickness, bendingStiffMult, fiberStiffMult, fiberLimit,
                                 s, sHat, kappa_s, DBCb, X, Xtilde, nodeAttr, M, elemAttr, elasticityAttr, 
@@ -859,12 +904,14 @@ int Step(
                 break;
             }
         }
-    } while ((resRecord.size() < 3) || L2Norm > NewtonTol); //TODO: newtonTol relative to bbox
+    } while (((resRecord.size() < 3) || L2Norm > NewtonTol) && PNIter < 50); //TODO: newtonTol relative to bbox
 
     FILE *out = fopen((outputFolder + "/counter.txt").c_str(), "a+");
     fprintf(out, "%d", PNIter);
     if (withCollision) {
+#ifdef VERBOSE
         printf("contact #: %lu\n", constraintSet.size());
+#endif
         fprintf(out, " %lu", constraintSet.size());
     }
     fprintf(out, "\n");
@@ -873,14 +920,18 @@ int Step(
     T maxs, avgs, minc, avgc;
     if (Elem.size) {
         Compute_Max_And_Avg_Stretch(Elem, staticSolve ? 1.0 : h, fiberStiffMult, DBCb, X, nodeAttr, elemAttr, elasticityAttr, maxs, avgs, minc, avgc);
+#ifdef VERBOSE
         printf("maxs = %le, avgs = %le\n", maxs, avgs);
+#endif
         out = fopen((outputFolder + "/stretch.txt").c_str(), "a+");
         fprintf(out, "%le %le %le %le\n", maxs, avgs, minc, avgc);
         fclose(out);
     }
     if (rod.size()) {
         Compute_Max_And_Avg_Stretch_Rod(X, rod, rodInfo, maxs, avgs);
+#ifdef VERBOSE
         printf("rod: maxs = %le, avgs = %le\n", maxs, avgs);
+#endif
         out = fopen((outputFolder + "/stretch_rod.txt").c_str(), "a+");
         fprintf(out, "%le %le\n", maxs, avgs);
         fclose(out);

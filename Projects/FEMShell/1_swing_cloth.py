@@ -11,7 +11,6 @@ if __name__ == "__main__":
     # sim params
     strain_limit = False
     cloth_material = 0
-    size = '21'
 
     membEMult = 1
     bendEMult = 1
@@ -25,14 +24,16 @@ if __name__ == "__main__":
     # sim.set_DBC(Vector3d(-0.1, -0.1, -0.1), Vector3d(1.1, 1.1, 1.1), 
     #     Vector3d(0, 0, 0), Vector3d(0, 0, 0), Vector3d(0, 1, 0), 0)
 
-    sim.add_shell_3D("input/square" + size + ".obj", Vector3d(0, 0, 0), \
-        Vector3d(0, 0, 0), Vector3d(0, 0, 1), 90)
+    sim.add_shell_3D("input/square41_static.obj", Vector3d(0, 0, 0), \
+        Vector3d(0, 0, 0), Vector3d(0, 0, 1), 0)
 
     # DBC_bbox_min, DBC_bbox_max, idx_range
-    DBC_range = sim.set_DBC(Vector3d(-0.1, 1.0 - 1e-3, -0.1), Vector3d(1.1, 1.1, 1.1))
+    corner1 = sim.set_DBC(Vector3d(-0.1, 1.0 - 1e-3, -0.1), Vector3d(1.1, 1.1, 1e-3))
+    corner2 = sim.set_DBC(Vector3d(-0.1, 1.0 - 1e-3, 1.0 - 1e-3), Vector3d(1.1, 1.1, 1.1))
+    DBC_range = Vector2i(corner1[0], corner2[1])
     # begin, end, range, dist, rotCenter, rotAxis, angle, ease_ratio=0.2
-    sim.add_motion(0, 1.0, DBC_range, Vector3d(0.5, 0, 0), Vector3d(0, 0, 0), Vector3d(0, 1, 0), 0)
-    sim.add_motion(1.0, 2.0, DBC_range, Vector3d(-0.5, 0, 0), Vector3d(0, 0, 0), Vector3d(0, 1, 0), 0)
+    sim.add_motion(0, 1.0, DBC_range, Vector3d(1.0, 0, 0), Vector3d(0, 0, 0), Vector3d(0, 1, 0), 0)
+    sim.add_motion(1.0, 2.0, DBC_range, Vector3d(-1.0, 0, 0), Vector3d(0, 0, 0), Vector3d(0, 1, 0), 0)
 
     if strain_limit:
         # iso
@@ -47,16 +48,18 @@ if __name__ == "__main__":
         sim.run()
     else:
         # opt params (trajectory, force)
-        opt_param = "trajectory"
-        constrain_type = "hard"
-        opt_med = "GN"
+        opt_param = sys.argv[1]
+        constrain_type = sys.argv[2]
+        opt_med = sys.argv[3]
 
         opt = Drivers.LoopyOpt(sim, opt_param, constrain_type, opt_med)
-        opt.init_med = "solve"
+        opt.init_med = sys.argv[4]
+        opt.load_path = "output/" + sys.argv[0].split('.')[0] + "/trajectory.txt"
         opt.n_epoch = 50
         opt.epsilon = 1e-4
         opt.p = 2
-        opt.alpha = 1.0
+        opt.use_cg = True
+        opt.cg_iter_ratio = 0.01
 
         opt.initialize()
         opt.run()

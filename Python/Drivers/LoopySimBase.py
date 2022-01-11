@@ -279,7 +279,6 @@ class LoopySimBase:
                 self.tet, self.tetAttr, self.tetElasticity, self.rod, self.rodInfo, \
                 self.rodHinge, self.rodHingeInfo, self.stitchInfo, self.stitchRatio, self.k_stitch,\
                 self.discrete_particle, self.output_folder)
-        print("Total PN iteration count: ", self.PNIterCount, "\n")
         # self.load_velocity('/Users/minchen/Desktop/JGSL/Projects/FEMShell/output/shrink/', 1, dt)
         if self.scaleXMultStep != 1 or self.scaleYMultStep != 1 or self.scaleZMultStep != 1:
             self.scaleX *= self.scaleXMultStep
