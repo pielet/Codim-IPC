@@ -145,10 +145,10 @@ void Print(MESH_NODE<T, dim>& x)
 	x.Each([](int idx, auto data) {
 		auto &[vec] = data;
 		if constexpr (dim == 2) {
-			printf("(%f, %f)\n", vec[0], vec[1]);
+			printf("(%le, %le)\n", vec[0], vec[1]);
 		}
 		else {
-			printf("(%f, %f, %f)\n", vec[0], vec[1], vec[2]);
+			printf("(%le, %le, %le)\n", vec[0], vec[1], vec[2]);
 		}
 	});
 }
@@ -178,6 +178,16 @@ void Add_Identity(std::vector<Eigen::Triplet<T>>& triplets, int base_i, int base
 		triplets[idx] = Eigen::Triplet<T>(base_i + i, base_j + i, a);
 		++idx;
 	}
+}
+
+template <class T>
+std::vector<Eigen::Triplet<T>> to_triplets(Eigen::SparseMatrix<T> & M){
+    std::vector<Eigen::Triplet<T>> v(M.nonZeros());
+    int idx = 0;
+    for(int i = 0; i < M.outerSize(); i++)
+        for(typename Eigen::SparseMatrix<T>::InnerIterator it(M,i); it; ++it)
+            v[idx++] = Eigen::Triplet<T>(it.row(), it.col(), it.value());
+    return v;
 }
 
 void Export_Control_Utils(py::module& m)

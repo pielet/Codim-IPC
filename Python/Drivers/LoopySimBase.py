@@ -181,7 +181,7 @@ class LoopySimBase:
         # do it twice to make sure the image is shown
         for f in range(self.frame_num):
             self.current_frame = f + 1
-            self.step()
+            self.step(f)
             self.write(f + 1)
             TIMER_FLUSH(f + 1, self.frame_num, f + 1, self.frame_num)
             if Get_Parameter("Terminate", False):
@@ -251,7 +251,7 @@ class LoopySimBase:
     def add_motion(self, begin, end, DBC_range, dist, rotCenter, rotAxis, angle, ease_ratio=0.2):
         Control.Add_DBC_Motion(begin, end, ease_ratio, DBC_range, dist, rotCenter, rotAxis, angle, self.DBCMotion)
 
-    def step(self, control_force=None):
+    def step(self, cur_step, control_force=None):
         self.t += self.dt
         Control.Update_Dirichlet(self.t, self.DBCMotion, self.dt, self.DBC)
 
@@ -260,7 +260,7 @@ class LoopySimBase:
             Control.Fill(control_force, self.n_vert)
 
         if self.elasticIPC:
-            self.PNIterCount = self.PNIterCount + Control.Step_EIPC(self.Elem, self.segs, self.DBC, \
+            self.PNIterCount = self.PNIterCount + Control.Step_EIPC(cur_step, self.Elem, self.segs, self.DBC, \
                 self.edge2tri, self.edgeStencil, self.edgeInfo, \
                 self.thickness, self.bendingStiffMult, self.fiberStiffMult, self.inextLimit, self.s, self.sHat, self.kappa_s, \
                 self.bodyForce, control_force, self.dt, self.PNTol, self.withCollision, self.dHat2, self.kappa, self.mu, self.epsv2, self.fricIterAmt, \
@@ -270,7 +270,7 @@ class LoopySimBase:
                 self.rodHinge, self.rodHingeInfo, self.stitchInfo, self.stitchRatio, self.k_stitch,\
                 self.discrete_particle, self.output_folder)
         else:
-            self.PNIterCount = self.PNIterCount + Control.Step(self.Elem, self.segs, self.DBC, \
+            self.PNIterCount = self.PNIterCount + Control.Step(cur_step, self.Elem, self.segs, self.DBC, \
                 self.edge2tri, self.edgeStencil, self.edgeInfo, \
                 self.thickness, self.bendingStiffMult, self.fiberStiffMult, self.inextLimit, self.s, self.sHat, self.kappa_s, \
                 self.bodyForce, control_force, self.dt, self.PNTol, self.withCollision, self.dHat2, self.kappa, self.mu, self.epsv2, self.fricIterAmt, \

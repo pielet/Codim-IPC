@@ -81,6 +81,7 @@ VECTOR<int, 2> Set_Dirichlet(MESH_NODE<T, dim>& X,
         }
     });
     range[1] = DBCCount;
+    std::cout << '\n';
 
     return range;
 }

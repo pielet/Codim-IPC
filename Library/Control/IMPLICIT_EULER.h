@@ -161,6 +161,7 @@ void LineSearch(
 
 template <class T, int dim, bool KL=false, bool elasticIPC=false, bool flow=false>
 int Step(
+    int cur_step,
     MESH_ELEM<dim - 1>& Elem,
     const std::vector<VECTOR<int, 2>>& seg,
     VECTOR_STORAGE<T, dim + 1>& DBC,

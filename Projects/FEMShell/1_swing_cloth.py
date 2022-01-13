@@ -23,8 +23,8 @@ if __name__ == "__main__":
     #     Vector3d(0, 0, 0), Vector3d(0, 0, 0), 0)
     # sim.set_DBC(Vector3d(-0.1, -0.1, -0.1), Vector3d(1.1, 1.1, 1.1), 
     #     Vector3d(0, 0, 0), Vector3d(0, 0, 0), Vector3d(0, 1, 0), 0)
-
-    sim.add_shell_3D("input/square41_static.obj", Vector3d(0, 0, 0), \
+    # square41_static.obj
+    sim.add_shell_3D("input/square10_static.obj", Vector3d(0, 0, 0), \
         Vector3d(0, 0, 0), Vector3d(0, 0, 1), 0)
 
     # DBC_bbox_min, DBC_bbox_max, idx_range
@@ -53,13 +53,14 @@ if __name__ == "__main__":
         opt_med = sys.argv[3]
 
         opt = Drivers.LoopyOpt(sim, opt_param, constrain_type, opt_med)
-        opt.init_med = sys.argv[4]
+        if len(sys.argv) > 4:
+            opt.init_med = sys.argv[4]
         opt.load_path = "output/" + sys.argv[0].split('.')[0] + "/trajectory.txt"
         opt.n_epoch = 50
         opt.epsilon = 1e-4
         opt.p = 2
-        opt.use_cg = True
-        opt.cg_iter_ratio = 0.01
+        opt.use_cg = False
+        opt.cg_iter_ratio = 0.05
 
         opt.initialize()
         opt.run()

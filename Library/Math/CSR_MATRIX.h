@@ -141,6 +141,31 @@ public:
         }
     }
 
+    void Add_Identity(T a)
+    {
+        for (int i = 0; i < A.outerSize(); ++i) {
+            typename MATRIX_TYPE::InnerIterator it(A, i);
+            for (; it; ++it) {
+                if (it.row() == it.col()) {
+                    it.valueRef() += a;
+                }
+            }
+        }
+    }
+
+    void Add_To(std::vector<Eigen::Triplet<T>>& triplets, int base_i, int base_j, T scale = 1.0) {
+        int idx = triplets.size();
+        triplets.resize(idx + A.nonZeros());
+
+        for (int i = 0; i < A.outerSize(); ++i) {
+            typename MATRIX_TYPE::InnerIterator it(A, i);
+            for (; it; ++it) {
+                triplets[idx] = Eigen::Triplet<T>(base_i + it.row(), base_j + it.col(), scale * it.value());
+                ++idx;
+            }
+        }
+    }
+
     void output(const std::string& filePath)
     {
         FILE *out = fopen(filePath.c_str(), "w+");
