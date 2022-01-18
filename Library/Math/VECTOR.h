@@ -210,7 +210,7 @@ public:
         return v;
     }
 
-    JGSL_FORCE_INLINE VECTOR<T,dim> Normalized() {
+    JGSL_FORCE_INLINE VECTOR<T,dim> Normalized() const {
         T len = length();
         if(len)return *this/len;
         else return Unit_Vector(0);
@@ -308,6 +308,7 @@ public:
 
     JGSL_FORCE_INLINE MATRIX<T, dim> operator+(const MATRIX<T, dim>& o) const { MATRIX<T, dim> m; for (int d = 0; d < dim; ++d) m.data[d] = data[d] + o.data[d]; return m; }
     JGSL_FORCE_INLINE MATRIX<T, dim> operator-(const MATRIX<T, dim>& o) const { MATRIX<T, dim> m; for (int d = 0; d < dim; ++d) m.data[d] = data[d] - o.data[d]; return m; }
+    JGSL_FORCE_INLINE MATRIX<T, dim> operator-() const { MATRIX<T, dim> m; for (int d = 0; d < dim; ++d) m.data[d] = -data[d]; return m; }
     JGSL_FORCE_INLINE VECTOR<T, dim> operator*(const VECTOR<T, dim>& o) const {
         if constexpr (std::is_same<T, float>::value) {
             auto tmp = _mm_permute_ps(o.v, 0x55 * 0);
@@ -512,7 +513,14 @@ public:
 template <class T, int dim> JGSL_FORCE_INLINE MATRIX<T, dim> operator*(T a, const MATRIX<T, dim>& o) { return o * a; }
 template <class T, int dim> JGSL_FORCE_INLINE MATRIX<T, dim> outer_product(const VECTOR<T, dim>& col, const VECTOR<T, dim>& row) { MATRIX<T, dim> m; for (int d = 0; d < dim; ++d) m.data[d] = col * row(d); return m; }
 template <class T> JGSL_FORCE_INLINE VECTOR<T, 3> cross(const VECTOR<T, 3>& a, const VECTOR<T, 3>& b) { return VECTOR<T, 3>(a[1]*b[2]-a[2]*b[1], a[2]*b[0]-a[0]*b[2], a[0]*b[1]-a[1]*b[0]); }
-
+template <class T> MATRIX<T, 3> axial(const VECTOR<T, 3>& v) 
+{
+    MATRIX<T, 3> m;
+    m(0, 1) = -v(2); m(1, 0) = v(2);
+    m(0, 2) = v(1); m(2, 0) = -v(1);
+    m(1, 2) = -v(0); m(2, 1) = v(0);
+    return m;
+}
 //#####################################################################
 // Class SCALAR
 //#####################################################################

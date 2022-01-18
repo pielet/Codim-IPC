@@ -31,8 +31,8 @@ plt.close()
 
 fig, axis = plt.subplots(1, 1)
    
-axis.set_xlim(0, n_frame)
-axis.set_ylim(0, loss_per_frame[:, :n_frame - 2].max() / 10)
+axis.set_xlim(-1, n_frame)
+axis.set_ylim(0, loss_per_frame[0].max() / n_frame / 10)
 data = axis.plot(np.arange(n_frame))[0]
 
 def update(i):

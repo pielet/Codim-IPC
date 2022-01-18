@@ -90,6 +90,9 @@ class LoopySimBase:
         self.n_vert = 0
         self.n_DBC = 0
 
+        self.k_wind = 0
+        self.wind_dir = Vector3d(1, 0, 0)
+
         # 100% cotton, 100% wool, 95% wool 5% lycra, 100% polyester (PES), paper
         self.cloth_density_iso = [472.641509, 413.380282, 543.292683, 653.174603, 800]
         self.cloth_thickness_iso = [0.318e-3, 0.568e-3, 0.328e-3, 0.252e-3, 0.3e-3]
@@ -263,7 +266,7 @@ class LoopySimBase:
             self.PNIterCount = self.PNIterCount + Control.Step_EIPC(cur_step, self.Elem, self.segs, self.DBC, \
                 self.edge2tri, self.edgeStencil, self.edgeInfo, \
                 self.thickness, self.bendingStiffMult, self.fiberStiffMult, self.inextLimit, self.s, self.sHat, self.kappa_s, \
-                self.bodyForce, control_force, self.dt, self.PNTol, self.withCollision, self.dHat2, self.kappa, self.mu, self.epsv2, self.fricIterAmt, \
+                self.bodyForce, self.k_wind, self.wind_dir, control_force, self.dt, self.PNTol, self.withCollision, self.dHat2, self.kappa, self.mu, self.epsv2, self.fricIterAmt, \
                 self.compNodeRange, self.muComp, self.staticSolve, \
                 self.X, self.nodeAttr, self.massMatrix, self.elemAttr, self.elasticity, \
                 self.tet, self.tetAttr, self.tetElasticity, self.rod, self.rodInfo, \
@@ -273,7 +276,7 @@ class LoopySimBase:
             self.PNIterCount = self.PNIterCount + Control.Step(cur_step, self.Elem, self.segs, self.DBC, \
                 self.edge2tri, self.edgeStencil, self.edgeInfo, \
                 self.thickness, self.bendingStiffMult, self.fiberStiffMult, self.inextLimit, self.s, self.sHat, self.kappa_s, \
-                self.bodyForce, control_force, self.dt, self.PNTol, self.withCollision, self.dHat2, self.kappa, self.mu, self.epsv2, self.fricIterAmt, \
+                self.bodyForce, self.k_wind, self.wind_dir, control_force, self.dt, self.PNTol, self.withCollision, self.dHat2, self.kappa, self.mu, self.epsv2, self.fricIterAmt, \
                 self.compNodeRange, self.muComp, self.staticSolve, \
                 self.X, self.nodeAttr, self.massMatrix, self.elemAttr, self.elasticity, \
                 self.tet, self.tetAttr, self.tetElasticity, self.rod, self.rodInfo, \

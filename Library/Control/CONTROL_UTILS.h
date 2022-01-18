@@ -98,6 +98,50 @@ void Scale(MESH_NODE<T, dim>& X, T a)
 }
 
 template <class T, int dim>
+void node_to_eigen(MESH_NODE<T, dim>& node, Eigen::VectorXd& eigen)
+{
+	node.Par_Each([&](int idx, auto data) {
+		auto &[x] = data;
+		for (int d = 0; d < dim; ++d) {
+			eigen[idx * dim + d] = x[d];
+		}
+	});
+}
+
+template <class T, int dim>
+void eigen_to_node(const Eigen::VectorXd& eigen, MESH_NODE<T, dim>& node)
+{
+	node.Par_Each([&](int idx, auto data) {
+		auto &[x] = data;
+		for (int d = 0; d < dim; ++d) {
+			x[d] = eigen[idx * dim + d];
+		}
+	});
+}
+
+template <class T, int dim>
+void node_to_vector(MESH_NODE<T, dim>& node, std::vector<T>& vec, T a = 1.0)
+{
+	node.Par_Each([&](int idx, auto data) {
+		auto &[x] = data;
+		for (int d = 0; d < dim; ++d) {
+			vec[idx * dim + d] = a * x[d];
+		}
+	});
+}
+
+template <class T, int dim>
+void vector_to_node(const Eigen::VectorXd& vec, MESH_NODE<T, dim>& node)
+{
+	node.Par_Each([&](int idx, auto data) {
+		auto &[x] = data;
+		for (int d = 0; d < dim; ++d) {
+			x[d] = vec[idx * dim + d];
+		}
+	});
+}
+
+template <class T, int dim>
 void Read(MESH_NODE<T, dim>& X, const std::string& filename)
 {
 	std::ifstream is(filename);
@@ -154,17 +198,28 @@ void Print(MESH_NODE<T, dim>& x)
 }
 
 template <class T>
-void Add_Block(Eigen::SparseMatrix<T>& A, std::vector<Eigen::Triplet<T>>& triplets, int base_i, int base_j)
+void Add_Block(Eigen::SparseMatrix<T, Eigen::RowMajor>& A, std::vector<Eigen::Triplet<T>>& triplets, int base_i, int base_j, T a = 1.0)
 {
 	int idx = triplets.size();
 	triplets.resize(idx + A.nonZeros());
 
 	for (int i = 0; i < A.outerSize(); ++i) {
-		typename Eigen::SparseMatrix<T>::InnerIterator it(A, i);
+		typename Eigen::SparseMatrix<T, Eigen::RowMajor>::InnerIterator it(A, i);
 		for (; it; ++it) {
-			triplets[idx] = Eigen::Triplet<T>(base_i + it.row(), base_j + it.col(), it.value());
+			triplets[idx] = Eigen::Triplet<T>(base_i + it.row(), base_j + it.col(), a * it.value());
 			++idx;
 		}
+	}
+}
+
+template <class T>
+void Add_Block(const std::vector<Eigen::Triplet<T>>& A, std::vector<Eigen::Triplet<T>>& triplets, int base_i, int base_j, T a = 1.0)
+{
+	int idx = triplets.size();
+	triplets.resize(idx + A.size());
+
+	for (const auto t : A) {
+		triplets[idx++] = Eigen::Triplet<T>(base_i + t.row(), base_j + t.col(), a * t.value());
 	}
 }
 
@@ -178,16 +233,6 @@ void Add_Identity(std::vector<Eigen::Triplet<T>>& triplets, int base_i, int base
 		triplets[idx] = Eigen::Triplet<T>(base_i + i, base_j + i, a);
 		++idx;
 	}
-}
-
-template <class T>
-std::vector<Eigen::Triplet<T>> to_triplets(Eigen::SparseMatrix<T> & M){
-    std::vector<Eigen::Triplet<T>> v(M.nonZeros());
-    int idx = 0;
-    for(int i = 0; i < M.outerSize(); i++)
-        for(typename Eigen::SparseMatrix<T>::InnerIterator it(M,i); it; ++it)
-            v[idx++] = Eigen::Triplet<T>(it.row(), it.col(), it.value());
-    return v;
 }
 
 void Export_Control_Utils(py::module& m)

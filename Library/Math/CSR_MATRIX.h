@@ -153,20 +153,7 @@ public:
         }
     }
 
-    void Add_To(std::vector<Eigen::Triplet<T>>& triplets, int base_i, int base_j, T scale = 1.0) {
-        int idx = triplets.size();
-        triplets.resize(idx + A.nonZeros());
-
-        for (int i = 0; i < A.outerSize(); ++i) {
-            typename MATRIX_TYPE::InnerIterator it(A, i);
-            for (; it; ++it) {
-                triplets[idx] = Eigen::Triplet<T>(base_i + it.row(), base_j + it.col(), scale * it.value());
-                ++idx;
-            }
-        }
-    }
-
-    void output(const std::string& filePath)
+    void Output(const std::string& filePath)
     {
         FILE *out = fopen(filePath.c_str(), "w+");
         if (!out) {
@@ -217,7 +204,7 @@ void Export_SPARSE_MATRIX_Impl(py::module& m) {
         .def("__setitem__", [](CSR_MATRIX<T>&A, std::tuple<int, int> index, T v){A.Get_Item(std::get<0>(index), std::get<1>(index)) = v;})
         .def("Resize", &CSR_MATRIX<T>::Resize)
         .def("Size", &CSR_MATRIX<T>::Size)
-        ;
+        .def("Output", &CSR_MATRIX<T>::Output);
 }
 
 void Export_SPARSE_MATRIX(py::module& m) {

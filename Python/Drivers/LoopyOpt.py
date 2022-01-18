@@ -42,9 +42,12 @@ class LoopyOpt:
 		
 		# optimization params
 		self.n_epoch = 100
-		self.epsilon = 1e-4 # soft contrain
+		self.n_force_epoch = 0
+		self.n_trajectory_epoch = 0
+		self.n_alternate = 0
+		self.epsilon = -1 # soft contrain
 		self.L = 0.0 # hard constrain
-		self.p = 3  # p-norm
+		self.p = 2  # p-norm
 		self.minmax = False
 		self.init_med = "fix"  # for trajectory only: solve (0 loopy loss), fix (0 constrain loss)
 		self.load_path = ""
@@ -71,6 +74,11 @@ class LoopyOpt:
 		self.delta_x_history = deque([Storage.V3dStorage() for _ in range(self.window_size)])
 		self.delta_g_history = deque([Storage.V3dStorage() for _ in range(self.window_size)])
 		self.pho = deque([0.0 for _ in range(self.window_size)])
+		# debug
+		self.loss_residual = Storage.V3dStorage()
+		self.residual = Storage.V3dStorage()
+		self.hess_residual = Storage.V3dStorage()
+		self.A = CSR_MATRIX_D()
 
 		# loss
 		self.loss = 0.0
@@ -108,6 +116,10 @@ class LoopyOpt:
 
 		Control.Fill(self.init_DBC, self.n_DBC)
 
+		Control.Fill(self.residual, self.n_frame * self.n_vert)
+		Control.Fill(self.hess_residual, self.n_frame * self.n_vert)
+		Control.Fill(self.loss_residual, self.n_frame * self.n_vert)
+
 		if self.opt_med == "L-BFGS":
 			Control.Fill(self.last_x, self.n_frame * self.n_vert)
 			Control.Fill(self.last_g, self.n_frame * self.n_vert)
@@ -130,13 +142,16 @@ class LoopyOpt:
 			self.loss = self.compute_force_loss(self.control_force, self.trajectory)
 			print(f"[init] loss: {self.loss}, force: {self.force_loss}, constrain: {self.constrain_loss}")
 		elif self.opt_param == "trajectory":
-			# Control.Read(self.trajectory, self.load_path) # read anyway
-			self.forward(self.control_force)
-			if self.constrain_form == "hard" or self.init_med == "fix":
+			if self.init_med == "load":
+				Control.Read(self.trajectory, self.load_path) # read anyway
+			else:
+				self.forward(self.control_force)
+			if self.constrain_form == "hard":
 				Control.SetFrame(self.n_frame - 2, self.trajectory, self.X0)
 				Control.SetFrame(self.n_frame - 1, self.trajectory, self.X1)
-			make_directory(init_folder + "trajectory_loss/")
-			self.valid, self.loss = self.compute_trajectory_loss(self.trajectory, init_folder + "trajectory_loss/")
+
+			self.valid, self.loss = self.compute_trajectory_loss(self.trajectory)
+			Control.Write(self.loss_residual, init_folder + "/residual.txt")
 			print(f"[init] valid: {self.valid}, loss: {self.loss}, loopy: {self.loopy_loss}, constrain: {self.constrain_loss}")
 		
 		self.output_trajectory(init_folder)
@@ -149,6 +164,55 @@ class LoopyOpt:
 			if self.one_iter(i):
 				print("optimization converged: small alpha ", self.alpha)
 				break
+
+	def alternate(self):
+		cur_epoch = 0
+		for i in range(self.n_alternate):
+			# force
+			self.opt_param = "force"
+			self.opt_med = "GD"
+			self.constrain_form = "soft"
+			self.epsilon = 1e-4
+			self.alpha = 1.0
+
+			if i > 0:
+				Control.GetFrame(self.n_frame - 2, self.trajectory, self.X0)
+				Control.GetFrame(self.n_frame - 1, self.trajectory, self.X1)
+				Control.Copy(self.loss_residual, self.control_force)
+				Control.Scale(self.control_force, 1.0 / self.dt ** 2)
+				self.loss = self.compute_force_loss(self.control_force, self.trajectory)
+				self.output_loss()
+				print("================== [switch to force optimization] ===================")
+				print(f"loss: {self.loss}, force: {self.force_loss}, constrain: {self.constrain_loss}")
+
+			for j in range(self.n_force_epoch):
+				b_congerge = self.one_iter(cur_epoch)
+				_, _ = self.compute_trajectory_loss(self.trajectory)
+				print(f"[loopy loss]: {self.loopy_loss} ({self.force_loss * self.dt ** 4 * 2})")
+				cur_epoch += 1
+				if b_congerge:
+					print("[force optimization converged] alpha: ", self.alpha)
+					break
+
+			# trajectory
+			self.opt_param = "trajectory"
+			self.opt_med = "GN"
+			self.constrain_form = "soft"
+			self.epsilon = -1
+			self.alpha = 1.0
+
+			if i == 0:
+				Control.SetFrame(self.n_frame - 2, self.trajectory, self.X0)
+				Control.SetFrame(self.n_frame - 1, self.trajectory, self.X1)
+			self.valid, self.loss = self.compute_trajectory_loss(self.trajectory)
+			Control.Write(self.loss_residual, self.output_folder + f"epoch_{cur_epoch - 1}/residual.txt")
+			self.output_loss()
+			print("================== [switch to trajectory optimization] ===================")
+			print(f"valid: {self.valid}, loss: {self.loss}, loopy: {self.loopy_loss}, constrain: {self.constrain_loss}")
+
+			for j in range(self.n_trajectory_epoch):
+				self.one_iter(cur_epoch)
+				cur_epoch += 1
 		
 	def forward(self, control_force):
 		""" update to self.trajectory """
@@ -180,7 +244,7 @@ class LoopyOpt:
 			Control.ComputeAdjointVector(self.n_vert, self.n_frame, self.dt, 
 				self.sim.DBC, self.sim.Elem, self.sim.segs, self.sim.edge2tri, self.sim.edgeStencil, self.sim.edgeInfo,
 				self.sim.thickness, self.sim.bendingStiffMult, self.sim.fiberStiffMult, self.sim.inextLimit, self.sim.s, self.sim.sHat, self.sim.kappa_s,
-				self.sim.bodyForce, self.sim.withCollision, self.sim.dHat2, self.sim.kappa, self.sim.mu, self.sim.epsv2, self.sim.fricIterAmt, self.sim.compNodeRange, self.sim.muComp, 
+				self.sim.bodyForce, self.sim.k_wind, self.sim.wind_dir, self.sim.withCollision, self.sim.dHat2, self.sim.kappa, self.sim.mu, self.sim.epsv2, self.sim.fricIterAmt, self.sim.compNodeRange, self.sim.muComp, 
 				self.sim.nodeAttr, self.sim.massMatrix, self.sim.elemAttr, self.sim.elasticity,
 				self.sim.tet, self.sim.tetAttr, self.sim.tetElasticity, self.sim.rod, self.sim.rodInfo, self.sim.rodHinge, self.sim.rodHingeInfo, 
 				self.sim.stitchInfo, self.sim.stitchRatio, self.sim.k_stitch, self.sim.discrete_particle,
@@ -211,60 +275,80 @@ class LoopyOpt:
 						Control.ComputeTrajectoryGradientDescentMinMax(self.n_vert, self.n_frame, self.dt, self.epsilon, self.cg_iter_ratio, self.use_cg, self.loss_per_frame,
 							self.sim.DBC, self.sim.Elem, self.sim.segs, self.sim.edge2tri, self.sim.edgeStencil, self.sim.edgeInfo,
 							self.sim.thickness, self.sim.bendingStiffMult, self.sim.fiberStiffMult, self.sim.inextLimit, self.sim.s, self.sim.sHat, self.sim.kappa_s,
-							self.sim.bodyForce, self.sim.withCollision, self.sim.dHat2, self.sim.kappa, self.sim.mu, self.sim.epsv2, self.sim.fricIterAmt, self.sim.compNodeRange, self.sim.muComp, 
+							self.sim.bodyForce, self.sim.k_wind, self.sim.wind_dir, self.sim.withCollision, self.sim.dHat2, self.sim.kappa, self.sim.mu, self.sim.epsv2, self.sim.fricIterAmt, self.sim.compNodeRange, self.sim.muComp, 
 							self.sim.nodeAttr, self.sim.massMatrix, self.sim.elemAttr, self.sim.elasticity,
 							self.sim.tet, self.sim.tetAttr, self.sim.tetElasticity, self.sim.rod, self.sim.rodInfo, self.sim.rodHinge, self.sim.rodHingeInfo, 
 							self.sim.stitchInfo, self.sim.stitchRatio, self.sim.k_stitch, self.sim.discrete_particle,
-							self.X0, self.X1, self.trajectory, self.gradient, self.descent_dir)
+							self.X0, self.X1, self.trajectory, self.gradient, self.descent_dir, self.residual, self.hess_residual, self.A)
 					else:
 						Control.ComputeTrajectoryGradientDescent(self.n_vert, self.n_frame, self.dt, self.p, self.epsilon, self.cg_iter_ratio, self.use_cg,
 							self.sim.DBC, self.sim.Elem, self.sim.segs, self.sim.edge2tri, self.sim.edgeStencil, self.sim.edgeInfo,
 							self.sim.thickness, self.sim.bendingStiffMult, self.sim.fiberStiffMult, self.sim.inextLimit, self.sim.s, self.sim.sHat, self.sim.kappa_s,
-							self.sim.bodyForce, self.sim.withCollision, self.sim.dHat2, self.sim.kappa, self.sim.mu, self.sim.epsv2, self.sim.fricIterAmt, self.sim.compNodeRange, self.sim.muComp, 
+							self.sim.bodyForce, self.sim.k_wind, self.sim.wind_dir, self.sim.withCollision, self.sim.dHat2, self.sim.kappa, self.sim.mu, self.sim.epsv2, self.sim.fricIterAmt, self.sim.compNodeRange, self.sim.muComp, 
 							self.sim.nodeAttr, self.sim.massMatrix, self.sim.elemAttr, self.sim.elasticity,
 							self.sim.tet, self.sim.tetAttr, self.sim.tetElasticity, self.sim.rod, self.sim.rodInfo, self.sim.rodHinge, self.sim.rodHingeInfo, 
 							self.sim.stitchInfo, self.sim.stitchRatio, self.sim.k_stitch, self.sim.discrete_particle,
-							self.X0, self.X1, self.trajectory, self.gradient, self.descent_dir)
+							self.X0, self.X1, self.trajectory, self.gradient, self.descent_dir, self.residual, self.hess_residual, self.A)
 				else:
 					if self.minmax:
 						Control.ComputeTrajectoryGradientMinMax(self.n_vert, self.n_frame, self.dt, self.epsilon, self.cg_iter_ratio, self.use_cg, self.loss_per_frame,
 							self.sim.DBC, self.sim.Elem, self.sim.segs, self.sim.edge2tri, self.sim.edgeStencil, self.sim.edgeInfo,
 							self.sim.thickness, self.sim.bendingStiffMult, self.sim.fiberStiffMult, self.sim.inextLimit, self.sim.s, self.sim.sHat, self.sim.kappa_s,
-							self.sim.bodyForce, self.sim.withCollision, self.sim.dHat2, self.sim.kappa, self.sim.mu, self.sim.epsv2, self.sim.fricIterAmt, self.sim.compNodeRange, self.sim.muComp, 
+							self.sim.bodyForce, self.sim.k_wind, self.sim.wind_dir, self.sim.withCollision, self.sim.dHat2, self.sim.kappa, self.sim.mu, self.sim.epsv2, self.sim.fricIterAmt, self.sim.compNodeRange, self.sim.muComp, 
 							self.sim.nodeAttr, self.sim.massMatrix, self.sim.elemAttr, self.sim.elasticity,
 							self.sim.tet, self.sim.tetAttr, self.sim.tetElasticity, self.sim.rod, self.sim.rodInfo, self.sim.rodHinge, self.sim.rodHingeInfo, 
 							self.sim.stitchInfo, self.sim.stitchRatio, self.sim.k_stitch, self.sim.discrete_particle,
-							self.X0, self.X1, self.trajectory, self.gradient, self.descent_dir)
+							self.X0, self.X1, self.trajectory, self.gradient, self.descent_dir, self.residual, self.hess_residual, self.A)
 					else:
 						Control.ComputeTrajectoryGradient(self.n_vert, self.n_frame, self.dt, self.p, self.epsilon, self.cg_iter_ratio, self.use_cg,
 							self.sim.DBC, self.sim.Elem, self.sim.segs, self.sim.edge2tri, self.sim.edgeStencil, self.sim.edgeInfo,
 							self.sim.thickness, self.sim.bendingStiffMult, self.sim.fiberStiffMult, self.sim.inextLimit, self.sim.s, self.sim.sHat, self.sim.kappa_s,
-							self.sim.bodyForce, self.sim.withCollision, self.sim.dHat2, self.sim.kappa, self.sim.mu, self.sim.epsv2, self.sim.fricIterAmt, self.sim.compNodeRange, self.sim.muComp, 
+							self.sim.bodyForce, self.sim.k_wind, self.sim.wind_dir, self.sim.withCollision, self.sim.dHat2, self.sim.kappa, self.sim.mu, self.sim.epsv2, self.sim.fricIterAmt, self.sim.compNodeRange, self.sim.muComp, 
 							self.sim.nodeAttr, self.sim.massMatrix, self.sim.elemAttr, self.sim.elasticity,
 							self.sim.tet, self.sim.tetAttr, self.sim.tetElasticity, self.sim.rod, self.sim.rodInfo, self.sim.rodHinge, self.sim.rodHingeInfo, 
 							self.sim.stitchInfo, self.sim.stitchRatio, self.sim.k_stitch, self.sim.discrete_particle,
-							self.X0, self.X1, self.trajectory, self.gradient, self.descent_dir)
+							self.X0, self.X1, self.trajectory, self.gradient, self.descent_dir, self.residual, self.hess_residual, self.A)
 					if self.opt_med == "L-BFGS":
 						self.L_BFGS(cur_epoch, self.trajectory, self.gradient)
 			elif self.constrain_form == "soft":
 				if self.opt_med == "GN":
-					Control.ComputeTrajectoryGradientDescent_SoftCon(self.n_vert, self.n_frame, self.dt, self.p, self.epsilon, self.cg_iter_ratio, self.use_cg,
-						self.sim.DBC, self.sim.Elem, self.sim.segs, self.sim.edge2tri, self.sim.edgeStencil, self.sim.edgeInfo,
-						self.sim.thickness, self.sim.bendingStiffMult, self.sim.fiberStiffMult, self.sim.inextLimit, self.sim.s, self.sim.sHat, self.sim.kappa_s,
-						self.sim.bodyForce, self.sim.withCollision, self.sim.dHat2, self.sim.kappa, self.sim.mu, self.sim.epsv2, self.sim.fricIterAmt, self.sim.compNodeRange, self.sim.muComp, 
-						self.sim.nodeAttr, self.sim.massMatrix, self.sim.elemAttr, self.sim.elasticity,
-						self.sim.tet, self.sim.tetAttr, self.sim.tetElasticity, self.sim.rod, self.sim.rodInfo, self.sim.rodHinge, self.sim.rodHingeInfo, 
-						self.sim.stitchInfo, self.sim.stitchRatio, self.sim.k_stitch, self.sim.discrete_particle,
-						self.X0, self.X1, self.trajectory, self.gradient, self.descent_dir)
+					if self.minmax:
+						Control.ComputeTrajectoryGradientDescentMinMax_SoftCon(self.n_vert, self.n_frame, self.dt, self.epsilon, self.cg_iter_ratio, self.use_cg, self.loss_per_frame,
+							self.sim.DBC, self.sim.Elem, self.sim.segs, self.sim.edge2tri, self.sim.edgeStencil, self.sim.edgeInfo,
+							self.sim.thickness, self.sim.bendingStiffMult, self.sim.fiberStiffMult, self.sim.inextLimit, self.sim.s, self.sim.sHat, self.sim.kappa_s,
+							self.sim.bodyForce, self.sim.k_wind, self.sim.wind_dir, self.sim.withCollision, self.sim.dHat2, self.sim.kappa, self.sim.mu, self.sim.epsv2, self.sim.fricIterAmt, self.sim.compNodeRange, self.sim.muComp, 
+							self.sim.nodeAttr, self.sim.massMatrix, self.sim.elemAttr, self.sim.elasticity,
+							self.sim.tet, self.sim.tetAttr, self.sim.tetElasticity, self.sim.rod, self.sim.rodInfo, self.sim.rodHinge, self.sim.rodHingeInfo, 
+							self.sim.stitchInfo, self.sim.stitchRatio, self.sim.k_stitch, self.sim.discrete_particle,
+							self.X0, self.X1, self.trajectory, self.gradient, self.descent_dir, self.residual, self.hess_residual, self.A)
+					else:
+						Control.ComputeTrajectoryGradientDescent_SoftCon(self.n_vert, self.n_frame, self.dt, self.p, self.epsilon, self.cg_iter_ratio, self.use_cg,
+							self.sim.DBC, self.sim.Elem, self.sim.segs, self.sim.edge2tri, self.sim.edgeStencil, self.sim.edgeInfo,
+							self.sim.thickness, self.sim.bendingStiffMult, self.sim.fiberStiffMult, self.sim.inextLimit, self.sim.s, self.sim.sHat, self.sim.kappa_s,
+							self.sim.bodyForce, self.sim.k_wind, self.sim.wind_dir, self.sim.withCollision, self.sim.dHat2, self.sim.kappa, self.sim.mu, self.sim.epsv2, self.sim.fricIterAmt, self.sim.compNodeRange, self.sim.muComp, 
+							self.sim.nodeAttr, self.sim.massMatrix, self.sim.elemAttr, self.sim.elasticity,
+							self.sim.tet, self.sim.tetAttr, self.sim.tetElasticity, self.sim.rod, self.sim.rodInfo, self.sim.rodHinge, self.sim.rodHingeInfo, 
+							self.sim.stitchInfo, self.sim.stitchRatio, self.sim.k_stitch, self.sim.discrete_particle,
+							self.X0, self.X1, self.trajectory, self.gradient, self.descent_dir, self.residual, self.hess_residual, self.A)
 				else:
-					Control.ComputeTrajectoryGradient_SoftCon(self.n_vert, self.n_frame, self.dt, self.p, self.epsilon, self.cg_iter_ratio, self.use_cg,
-						self.sim.DBC, self.sim.Elem, self.sim.segs, self.sim.edge2tri, self.sim.edgeStencil, self.sim.edgeInfo,
-						self.sim.thickness, self.sim.bendingStiffMult, self.sim.fiberStiffMult, self.sim.inextLimit, self.sim.s, self.sim.sHat, self.sim.kappa_s,
-						self.sim.bodyForce, self.sim.withCollision, self.sim.dHat2, self.sim.kappa, self.sim.mu, self.sim.epsv2, self.sim.fricIterAmt, self.sim.compNodeRange, self.sim.muComp, 
-						self.sim.nodeAttr, self.sim.massMatrix, self.sim.elemAttr, self.sim.elasticity,
-						self.sim.tet, self.sim.tetAttr, self.sim.tetElasticity, self.sim.rod, self.sim.rodInfo, self.sim.rodHinge, self.sim.rodHingeInfo, 
-						self.sim.stitchInfo, self.sim.stitchRatio, self.sim.k_stitch, self.sim.discrete_particle,
-						self.X0, self.X1, self.trajectory, self.gradient, self.descent_dir)
+					if self.minmax:
+						Control.ComputeTrajectoryGradientMinMax_SoftCon(self.n_vert, self.n_frame, self.dt, self.epsilon, self.cg_iter_ratio, self.use_cg, self.loss_per_frame,
+							self.sim.DBC, self.sim.Elem, self.sim.segs, self.sim.edge2tri, self.sim.edgeStencil, self.sim.edgeInfo,
+							self.sim.thickness, self.sim.bendingStiffMult, self.sim.fiberStiffMult, self.sim.inextLimit, self.sim.s, self.sim.sHat, self.sim.kappa_s,
+							self.sim.bodyForce, self.sim.k_wind, self.sim.wind_dir, self.sim.withCollision, self.sim.dHat2, self.sim.kappa, self.sim.mu, self.sim.epsv2, self.sim.fricIterAmt, self.sim.compNodeRange, self.sim.muComp, 
+							self.sim.nodeAttr, self.sim.massMatrix, self.sim.elemAttr, self.sim.elasticity,
+							self.sim.tet, self.sim.tetAttr, self.sim.tetElasticity, self.sim.rod, self.sim.rodInfo, self.sim.rodHinge, self.sim.rodHingeInfo, 
+							self.sim.stitchInfo, self.sim.stitchRatio, self.sim.k_stitch, self.sim.discrete_particle,
+							self.X0, self.X1, self.trajectory, self.gradient, self.descent_dir, self.residual, self.hess_residual, self.A)
+					else:
+						Control.ComputeTrajectoryGradient_SoftCon(self.n_vert, self.n_frame, self.dt, self.p, self.epsilon, self.cg_iter_ratio, self.use_cg,
+							self.sim.DBC, self.sim.Elem, self.sim.segs, self.sim.edge2tri, self.sim.edgeStencil, self.sim.edgeInfo,
+							self.sim.thickness, self.sim.bendingStiffMult, self.sim.fiberStiffMult, self.sim.inextLimit, self.sim.s, self.sim.sHat, self.sim.kappa_s,
+							self.sim.bodyForce, self.sim.k_wind, self.sim.wind_dir, self.sim.withCollision, self.sim.dHat2, self.sim.kappa, self.sim.mu, self.sim.epsv2, self.sim.fricIterAmt, self.sim.compNodeRange, self.sim.muComp, 
+							self.sim.nodeAttr, self.sim.massMatrix, self.sim.elemAttr, self.sim.elasticity,
+							self.sim.tet, self.sim.tetAttr, self.sim.tetElasticity, self.sim.rod, self.sim.rodInfo, self.sim.rodHinge, self.sim.rodHingeInfo, 
+							self.sim.stitchInfo, self.sim.stitchRatio, self.sim.k_stitch, self.sim.discrete_particle,
+							self.X0, self.X1, self.trajectory, self.gradient, self.descent_dir, self.residual, self.hess_residual, self.A)
 					if self.opt_med == "L-BFGS":
 						self.L_BFGS(cur_epoch, self.trajectory, self.gradient)
 
@@ -272,8 +356,9 @@ class LoopyOpt:
 
 			print(f"valid: {self.valid}, loss: {self.loss}, loopy: {self.loopy_loss}, constrain: {self.constrain_loss}")
 
-		self.output_trajectory(epoch_folder)
 		self.output_loss()
+		self.output_trajectory(epoch_folder)
+		self.output_debug_info(epoch_folder)
 
 		# TIMER_FLUSH(cur_epoch + 1, self.n_epoch, cur_epoch + 1, self.n_epoch)
 
@@ -311,10 +396,11 @@ class LoopyOpt:
 
 	def force_line_search(self):
 		self.alpha *= 2
+		start_alpha = self.alpha
 		threshold = 0.03 * Control.Reduce(self.gradient, self.descent_dir)
 
 		while True:
-			if self.alpha < 1e-8:
+			if self.alpha < 1e-6 * start_alpha:
 				break
 
 			Control.Copy(self.control_force, self.tentative)
@@ -335,14 +421,15 @@ class LoopyOpt:
 		Control.Copy(self.tentative, self.control_force)
 		self.loss = loss
 
-		return self.alpha < 1e-8
+		return self.alpha < 1e-6 * start_alpha
 
 	def trajectory_line_search(self):
 		self.alpha *= 2
+		start_alpha = self.alpha
 		threshold = 0.03 * Control.Reduce(self.gradient, self.descent_dir)
 
 		while True:
-			if self.alpha < 1e-8:
+			if self.alpha < 1e-6 * start_alpha:
 				break
 
 			Control.Copy(self.trajectory, self.tentative)
@@ -365,7 +452,7 @@ class LoopyOpt:
 		Control.Copy(self.tentative, self.trajectory)
 		self.valid, self.loss = valid, loss
 
-		return self.alpha < 1e-8
+		return self.alpha < 1e-6 * start_alpha
 
 	def fast_projection(self):
 		print("[fast projection]")
@@ -385,15 +472,15 @@ class LoopyOpt:
 		elif self.constrain_form == "hard":
 			return self.force_loss + self.L * self.constrain_loss
 
-	def compute_trajectory_loss(self, trajectory, output_folder=""):
+	def compute_trajectory_loss(self, trajectory):
 		valid = Control.ComputeLoopyLoss(self.n_vert, self.n_frame, self.dt, self.p,
 			self.sim.DBC, self.sim.Elem, self.sim.segs, self.sim.edge2tri, self.sim.edgeStencil, self.sim.edgeInfo,
 			self.sim.thickness, self.sim.bendingStiffMult, self.sim.fiberStiffMult, self.sim.inextLimit, self.sim.s, self.sim.sHat, self.sim.kappa_s,
-			self.sim.bodyForce, self.sim.withCollision, self.sim.dHat2, self.sim.kappa, self.sim.mu, self.sim.epsv2, self.sim.fricIterAmt, self.sim.compNodeRange, self.sim.muComp, 
+			self.sim.bodyForce, self.sim.k_wind, self.sim.wind_dir, self.sim.withCollision, self.sim.dHat2, self.sim.kappa, self.sim.mu, self.sim.epsv2, self.sim.fricIterAmt, self.sim.compNodeRange, self.sim.muComp, 
 			self.sim.nodeAttr, self.sim.massMatrix, self.sim.elemAttr, self.sim.elasticity,
 			self.sim.tet, self.sim.tetAttr, self.sim.tetElasticity, self.sim.rod, self.sim.rodInfo, self.sim.rodHinge, self.sim.rodHingeInfo, 
 			self.sim.stitchInfo, self.sim.stitchRatio, self.sim.k_stitch, self.sim.discrete_particle,
-			self.X0, self.X1, trajectory, self.valid_per_frame, self.loss_per_frame, output_folder)
+			self.X0, self.X1, trajectory, self.valid_per_frame, self.loss_per_frame, self.loss_residual)
 		
 		self.loopy_loss = 0.0
 		if valid:
@@ -404,24 +491,26 @@ class LoopyOpt:
 		if self.constrain_form == "soft":
 			self.constrain_loss = Control.ComputeConstrain(self.n_vert, self.n_frame, self.sim.massMatrix, self.X0, self.X1, trajectory)
 		
-		loss = self.loopy_loss + self.constrain_loss / self.epsilon
+		loss = self.loopy_loss
+		if self.epsilon > 0:
+			loss += self.constrain_loss / self.epsilon
 
 		return valid, loss
 
-	def output_trajectory(self, epoch_folder, b_output_params=True):
+	def output_trajectory(self, epoch_folder):
 		self.sim.output_folder = epoch_folder
 		Control.Copy(self.X0, self.sim.X)
 		self.sim.write(0)
 		Control.Copy(self.X1, self.sim.X)
 		self.sim.write(1)
 
+		# write .obj
 		for i in range(self.n_frame):
 			Control.GetFrame(i, self.trajectory, self.sim.X)
 			self.sim.write(i + 2)
 
-		if b_output_params:
-			if self.opt_param == "force":
-				Control.Write(self.control_force, epoch_folder + "control_force.txt")
+		# write .txt
+		if self.opt_param == "force":
 			Control.Write(self.trajectory, epoch_folder + "trajectory.txt")
 
 	def output_loss(self):
@@ -434,6 +523,18 @@ class LoopyOpt:
 				f.write('\n')
 				f.write(' '.join([str(x) for x in self.loss_per_frame]))
 				f.write('\n')
+
+	def output_debug_info(self, epoch_folder):
+		if self.opt_param == "force":
+			Control.Write(self.control_force, epoch_folder + "control_force.txt")
+			Control.Write(self.gradient, epoch_folder + "adjoint_vector.txt")
+			Control.Write(self.descent_dir, epoch_folder + "descent_dir.txt")
+		elif self.opt_param == "trajectory":
+			Control.Write(self.residual, epoch_folder + "residual.txt")
+			Control.Write(self.hess_residual, epoch_folder + "hess_residual.txt")
+			Control.Write(self.gradient, epoch_folder + "gradient.txt")
+			Control.Write(self.descent_dir, epoch_folder + "descent_dir.txt")
+			self.A.Output(epoch_folder + "A.txt")
 
 	def register_logger(self):
 		class Logger(object):

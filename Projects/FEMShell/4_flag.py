@@ -3,7 +3,7 @@ sys.path.insert(0, "../../Python")
 import Drivers
 from JGSL import *
 
-b_opt = False
+b_opt = True
 
 if __name__ == "__main__":
     sim = Drivers.LoopySimBase("double", 3, b_opt)
@@ -16,20 +16,18 @@ if __name__ == "__main__":
     bendEMult = 1
 
     sim.dt = 0.02
-    sim.frame_num = 1000
+    sim.frame_num = 100
     sim.withCollision = False
+
+    sim.k_wind = 5e4
+    sim.wind_dir = Vector3d(1.0, 0, 0)
     
-    sim.add_shell_3D("input/square11_static.obj", Vector3d(0, 0, 0), \
-        Vector3d(0, 0, 0), Vector3d(0, 0, 1), 0)
+    sim.add_shell_3D("input/square11x16.obj", Vector3d(0, 0, 0), \
+        Vector3d(0, 0, 0), Vector3d(1, 0, 0), 0)
 
     # DBC_bbox_min, DBC_bbox_max, idx_range
-    corner1 = sim.set_DBC(Vector3d(-0.1, 1.0 - 1e-3, -0.1), Vector3d(1.1, 1.1, 1e-3))
-    corner2 = sim.set_DBC(Vector3d(-0.1, 1.0 - 1e-3, 1.0 - 1e-3), Vector3d(1.1, 1.1, 1.1))
-    DBC_range = Vector2i(corner1[0], corner2[1])
-    # begin, end, range, dist, rotCenter, rotAxis, angle, ease_ratio=0.2
-    for i in range(10):
-        sim.add_motion(2.0 * i, 2.0 * i + 1.0, DBC_range, Vector3d(-1.0, 0, 0), Vector3d(0, 0, 0), Vector3d(0, 1, 0), 0)
-        sim.add_motion(2.0 * i + 1.0, 2.0 * (i + 1), DBC_range, Vector3d(1.0, 0, 0), Vector3d(0, 0, 0), Vector3d(0, 1, 0), 0)
+    corner1 = sim.set_DBC(Vector3d(-0.1, -1.0, -0.1), Vector3d(1e-3, 1e-3, 1.1))
+    corner2 = sim.set_DBC(Vector3d(-0.1, 1 - 1e-3, -0.1), Vector3d(1e-3, 1.1, 1.1))
 
     if strain_limit:
         # iso
@@ -53,9 +51,13 @@ if __name__ == "__main__":
             opt.init_med = sys.argv[4]
         opt.load_path = "output/" + sys.argv[0].split('.')[0] + "/trajectory.txt"
 
-        opt.n_epoch = 300
-        if len(sys.argv) > 5:
-            opt.epsilon = float(sys.argv[5])
+        if opt_param == "force":
+            opt.n_epoch = 50
+            opt.epsilon = 1e-4
+            opt.alpha = 1e-5
+        elif opt_param == "trajectory":
+            opt.n_epoch = 300
+            opt.epsilon = -1
 
         opt.p = 2
         opt.minmax = False

@@ -1,6 +1,7 @@
 #pragma once
 
 #include <FEM/Shell/INC_POTENTIAL.h>
+#include <Control/WIND.h>
 
 #include <deque>
 
@@ -172,7 +173,7 @@ int Step(
     const VECTOR<T, 4>& fiberStiffMult,
     const VECTOR<T, 3>& fiberLimit,
     VECTOR<T, 2>& s, VECTOR<T, 2>& sHat, VECTOR<T, 2>& kappa_s, 
-    const std::vector<T>& b,
+    const std::vector<T>& b, T k_wind, const VECTOR<T, dim>& wind_dir,
     MESH_NODE<T, dim>& control_force,
     T h, T NewtonTol,
     bool withCollision,
@@ -207,6 +208,13 @@ int Step(
     // record Xn and compute predictive pos Xtilde ==================================================================================================
     // input: nodeAttr[v], bodyForce, M
     // output: Xn, Xtilde
+    std::vector<bool> DBCb(X.size, false);
+    DBC.Each([&](int id, auto data) {
+        auto &[dbcI] = data;
+        int vI = dbcI(0);
+        DBCb[dbcI(0)] = true; // bool array cannot be written in parallel by entries
+    });
+
     MESH_NODE<T, dim> Xn, Xtilde;
     if (!staticSolve) {
         Append_Attribute(X, Xn);
@@ -220,6 +228,17 @@ int Step(
                 f_ext[idx * dim + d] += f[d];
             }
         });
+        if (k_wind > 0) {
+            MESH_NODE<T, dim> wind_force;
+            Append_Attribute(control_force, wind_force);
+            Compute_Wind_Force<T, dim>(k_wind, wind_dir, DBCb, Elem, elasticityAttr, Xn, wind_force);
+            wind_force.Par_Each([&](int idx, auto data) {
+                auto &[f] = data;
+                for (int d = 0; d < dim; ++d) {
+                    f_ext[idx * dim + d] += f[d];
+                }
+            });
+        }
         if (!Solve_Direct(M, f_ext, a)) {
             std::cout << "mass matrix factorization failed!" << std::endl;
             exit(-1);
@@ -315,7 +334,6 @@ int Step(
     // input: X, DBC
     // output: DBCStiff, DBCb, DBCb_fixed
     T DBCAlpha = 1;
-    std::vector<bool> DBCb(X.size, false); // this mask does not change with whether augmented Lagrangian is turned on
     std::vector<bool> DBCb_fixed(X.size, false); // this masks nodes that are fixed (DBC with 0 velocity)
     std::vector<T> DBCDisp(X.size * dim, T(0));
     DBC.Each([&](int id, auto data) {
@@ -337,7 +355,6 @@ int Step(
             }
         }
 
-        DBCb[dbcI(0)] = true; // bool array cannot be written in parallel by entries
     });
     // determine DBC alpha: CCD --------------------------------------------------------------------------------------------
     if (withCollision) {
