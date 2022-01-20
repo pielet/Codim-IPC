@@ -77,7 +77,7 @@ public: // API
             one_div_voxelSize = 1.0 / voxelSize;
         }
         voxelCount = (range * one_div_voxelSize).ceil().template cast<int>().max(Eigen::Array<int, dim, 1>::Ones());
-        printf("CCS SH voxel count %d\n", voxelCount.prod());
+        // printf("CCS SH voxel count %d\n", voxelCount.prod());
         if (voxelCount.minCoeff() <= 0) {
             // cast overflow due to huge search direction or tiny voxelSize
             one_div_voxelSize = 1.0 / (range.maxCoeff() * 1.01);
@@ -475,10 +475,10 @@ public: // API
         pSize /= boundaryNode.size() * dim;
 
         const T spanSize = curMaxStepSize * pSize / voxelSize;
-        std::cout << "span size = " << spanSize << std::endl;
+        // std::cout << "span size = " << spanSize << std::endl;
         if (spanSize > 1) {
             curMaxStepSize /= spanSize;
-            std::cout << "curMaxStepSize reduced" << std::endl;
+            // std::cout << "curMaxStepSize reduced" << std::endl;
         }
 
         Eigen::Matrix<T, Eigen::Dynamic, dim> SV(boundaryNode.size(), dim);
@@ -510,7 +510,7 @@ public: // API
             one_div_voxelSize = 1.0 / voxelSize;
         }
         voxelCount = (range * one_div_voxelSize).ceil().template cast<int>().max(Eigen::Array<int, dim, 1>::Ones());
-        printf("CCD SH voxel count %d\n", voxelCount.prod());
+        // printf("CCD SH voxel count %d\n", voxelCount.prod());
         if (voxelCount.minCoeff() <= 0) {
             // cast overflow due to huge search direction
             one_div_voxelSize = 1.0 / (range.maxCoeff() * 1.01);

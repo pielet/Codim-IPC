@@ -36,11 +36,11 @@ void SetZero(MESH_NODE<T, dim> X)
 }
 
 template <class T, int dim>
-void ZeroVelocity(MESH_NODE_ATTR<T, dim>& nodeAttr)
+void SetVelocity(MESH_NODE_ATTR<T, dim>& nodeAttr, VECTOR<T, dim>& init_v)
 {
 	nodeAttr.Par_Each([&](int id, auto data) {
 		auto &[x0, v, g, m] = data;
-		v.setZero();
+		v = init_v;
 	});
 }
 
@@ -198,7 +198,7 @@ void Print(MESH_NODE<T, dim>& x)
 }
 
 template <class T>
-void Add_Block(Eigen::SparseMatrix<T, Eigen::RowMajor>& A, std::vector<Eigen::Triplet<T>>& triplets, int base_i, int base_j, T a = 1.0)
+void Add_Block(Eigen::SparseMatrix<T, Eigen::RowMajor>& A, std::vector<Eigen::Triplet<T>>& triplets, int base_i, int base_j, T a = 1.0, bool trans = false)
 {
 	int idx = triplets.size();
 	triplets.resize(idx + A.nonZeros());
@@ -206,20 +206,30 @@ void Add_Block(Eigen::SparseMatrix<T, Eigen::RowMajor>& A, std::vector<Eigen::Tr
 	for (int i = 0; i < A.outerSize(); ++i) {
 		typename Eigen::SparseMatrix<T, Eigen::RowMajor>::InnerIterator it(A, i);
 		for (; it; ++it) {
-			triplets[idx] = Eigen::Triplet<T>(base_i + it.row(), base_j + it.col(), a * it.value());
+			if (trans) {
+				triplets[idx] = Eigen::Triplet<T>(base_i + it.col(), base_j + it.row(), a * it.value());
+			}
+			else {
+				triplets[idx] = Eigen::Triplet<T>(base_i + it.row(), base_j + it.col(), a * it.value());
+			}
 			++idx;
 		}
 	}
 }
 
 template <class T>
-void Add_Block(const std::vector<Eigen::Triplet<T>>& A, std::vector<Eigen::Triplet<T>>& triplets, int base_i, int base_j, T a = 1.0)
+void Add_Block(const std::vector<Eigen::Triplet<T>>& A, std::vector<Eigen::Triplet<T>>& triplets, int base_i, int base_j, T a = 1.0, bool trans = false)
 {
 	int idx = triplets.size();
 	triplets.resize(idx + A.size());
 
 	for (const auto t : A) {
-		triplets[idx++] = Eigen::Triplet<T>(base_i + t.row(), base_j + t.col(), a * t.value());
+		if (trans) {
+			triplets[idx++] = Eigen::Triplet<T>(base_i + t.col(), base_j + t.row(), a * t.value());
+		}
+		else {
+			triplets[idx++] = Eigen::Triplet<T>(base_i + t.row(), base_j + t.col(), a * t.value());
+		}
 	}
 }
 
@@ -239,7 +249,7 @@ void Export_Control_Utils(py::module& m)
 {
 	m.def("Fill", &Fill<double, 3>);
 	m.def("Fill", &Fill<double, 4>);
-	m.def("ZeroVelocity", &ZeroVelocity<double, 3>);
+	m.def("SetVelocity", &SetVelocity<double, 3>);
 	m.def("GetFrame", &GetFrame<double, 3>);
 	m.def("SetFrame", &SetFrame<double, 3>);
 	m.def("Reduce", &Reduce<double, 3>);

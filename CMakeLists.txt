@@ -6,8 +6,7 @@ set(CMAKE_CXX_COMPILER /usr/bin/g++)
 endif()
 project(JGSL CXX)
 
-set(LINEAR_SOLVER "CHOLMOD" CACHE STRING "Direct linear system solver to use (options: EIGEN, CHOLMOD)")
-set_property(CACHE LINEAR_SOLVER PROPERTY STRINGS "EIGEN" "CHOLMOD")
+set(LINEAR_SOLVER "CHOLMOD")
 
 set(ENABLE_FEM_SHELL ON)
 set(ENABLE_AMGCL_CUDA ON)

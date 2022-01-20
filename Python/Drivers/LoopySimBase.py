@@ -89,6 +89,7 @@ class LoopySimBase:
         self.DBCMotion = Storage.DBCMotion()
         self.n_vert = 0
         self.n_DBC = 0
+        self.init_velocity = Vector3d(0, 0, 0)
 
         self.k_wind = 0
         self.wind_dir = Vector3d(1, 0, 0)
@@ -197,8 +198,14 @@ class LoopySimBase:
 
     def add_object_3D(self, filePath, translate, rotCenter, rotAxis, rotDeg, scale):
         self.withVol = True
-        meshCounter = MeshIO.Read_TetMesh_Vtk(filePath, self.X, self.tet)
+        ext = filePath.split('.')[-1]
+        if ext == "vtk":
+            meshCounter = MeshIO.Read_TetMesh_Vtk(filePath, self.X, self.tet)
+        elif ext == "mesh":
+            meshCounter = MeshIO.Read_TetMesh_Mesh(filePath, self.X, self.tet)
+        self.n_vert = meshCounter[2]
         MeshIO.Transform_Points(translate, rotCenter, rotAxis, rotDeg, scale, meshCounter, self.X)
+        print(f"add component, #total_vertex_num={self.n_vert}")
         return meshCounter
 
     def initialize(self, clothI, b_SL, membEMult=0.01, bendEMult=1, b_gravity=True):
@@ -223,6 +230,7 @@ class LoopySimBase:
             self.s = Vector2d(self.cloth_SL_iso[clothI], 0)
 
     def initialize_added_objects(self, velocity, p_density, E, nu):
+        self.init_velocity = velocity
         MeshIO.Find_Surface_TriMesh(self.X, self.tet, self.TriVI2TetVI, self.Tri)
         vol = Storage.SdStorage()
         FEM.Compute_Vol_And_Inv_Basis(self.X, self.tet, vol, self.tetAttr)
@@ -298,7 +306,6 @@ class LoopySimBase:
             MeshIO.Zero_Velocity(self.nodeAttr)
 
     def write(self, frame_idx):
-        MeshIO.Write_TriMesh_Obj(self.X, self.Elem, self.output_folder + "shell" + str(frame_idx) + ".obj")
         if self.outputSeg:
             MeshIO.Write_SegMesh_Obj(self.X, self.segs, self.output_folder + "seg" + str(frame_idx) + ".obj")
         if self.outputRod:
@@ -306,3 +313,5 @@ class LoopySimBase:
         if self.withVol:
             MeshIO.Write_Surface_TriMesh_Obj(self.X, self.TriVI2TetVI, self.Tri, \
                     self.output_folder + "vol" + str(frame_idx) + ".obj")
+            return
+        MeshIO.Write_TriMesh_Obj(self.X, self.Elem, self.output_folder + "shell" + str(frame_idx) + ".obj")

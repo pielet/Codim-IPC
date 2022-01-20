@@ -1,4 +1,4 @@
-folder = "output/1_swing_cloth/trajectory_soft_GN_load_fix_-1/epoch_0/";
+folder = "output/3_bunny_high_res/trajectory_soft_GN_load_/epoch_0/";
 
 file = fopen(folder + "A.txt", 'r');
 triplets = fscanf(file, '%d %d %le', [3 Inf]);

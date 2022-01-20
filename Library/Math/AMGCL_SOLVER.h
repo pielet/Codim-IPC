@@ -67,16 +67,13 @@ boost::property_tree::ptree Default_FEM_Params(){
     return prm;
 }
 
-boost::property_tree::ptree Gauss_Newton_Params(int block_size){
+template<int dim>
+boost::property_tree::ptree Gauss_Newton_Params(){
     boost::property_tree::ptree prm;
     prm.put("precond.class", "amg");
     prm.put("precond.coarsening.type", "smoothed_aggregation");
-    prm.put("precond.coarsening.aggr.block_size", block_size);
-    prm.put("precond.coarsening.aggr.eps_strong", 0.0);
-    prm.put("precond.relax.type", "gauss_seidel");
-    prm.put("solver.type", "lgmres");
-    prm.put("solver.M", 100);
-    //TODO: blockwise backend
+    prm.put("precond.coarsening.aggr.block_size", dim);
+    prm.put("solver.type", "cg");
     return prm;
 }
 

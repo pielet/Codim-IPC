@@ -51,9 +51,8 @@ public:
     {
         TIMER_FLAG("constructCSRMatrixFromTriplet");
         A.resize(rows, cols);
-        A.reserve(triplets.size());
         A.setFromTriplets(triplets.begin(), triplets.end());
-        A.finalize();
+        A.makeCompressed();
 
         // // a parallel version:
         // // reorganize triplets per row

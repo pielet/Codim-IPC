@@ -620,8 +620,8 @@ void Export_Vector(py::module& m) {
     py::class_<SCALAR<double>>(m, "Scalard").def(py::init<>());
 
     py::class_<VECTOR<int, 2>>(m, "Vector2i").def(py::init<>()).def(py::init<int>()).def(py::init<int, int>()).def("__getitem__", [](const VECTOR<int, 2>& v, int i){ return v.data[i];});
-    py::class_<VECTOR<int, 3>>(m, "Vector3i").def(py::init<>()).def(py::init<int>()).def(py::init<int, int, int>());
-    py::class_<VECTOR<int, 4>>(m, "Vector4i").def(py::init<>()).def(py::init<int, int, int, int>());
+    py::class_<VECTOR<int, 3>>(m, "Vector3i").def(py::init<>()).def(py::init<int>()).def(py::init<int, int, int>()).def("__getitem__", [](const VECTOR<int, 3>& v, int i){ return v.data[i];});
+    py::class_<VECTOR<int, 4>>(m, "Vector4i").def(py::init<>()).def(py::init<int, int, int, int>()).def("__getitem__", [](const VECTOR<int, 4>& v, int i){ return v.data[i];});
     py::class_<SCALAR<int>>(m, "Scalari").def(py::init<>());
 }
 

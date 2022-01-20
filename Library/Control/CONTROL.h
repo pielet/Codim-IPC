@@ -547,7 +547,7 @@ bool ComputeLoopyLoss(
 
 		// compute gradient ==========================================================================================
 		loss_per_frame[i] = 0.0;
-		if (valid_per_frame[i]) {
+		// if (valid_per_frame[i]) {
 			Compute_IncPotential_Gradient<T, dim, KL, elasticIPC, flow>(Elem, h, edge2tri, edgeStencil, edgeInfo, 
 				thickness, bendingStiffMult, fiberStiffMult, fiberLimit,
 				s, sHat, kappa_s, DBCb, X, Xtilde, nodeAttr, M, elemAttr, 
@@ -579,7 +579,7 @@ bool ComputeLoopyLoss(
 
 			loss_per_frame[i] = loss;
 		}
-	}
+	// }
 
 	int valid = 1;
 	for (int v : valid_per_frame) {
@@ -591,7 +591,7 @@ bool ComputeLoopyLoss(
 
 template <class T, int dim, bool SC, bool GN, bool KL=false, bool elasticIPC=false, bool flow=false>
 void ComputeTrajectoryGradient(
-	int n_vert, int n_frame, T h, int p, T epsilon, T CG_iter_ratio, bool use_cg,
+	int n_vert, int n_frame, T h, int p, T epsilon, bool use_cg, int cg_iter, T cg_tol,
 	VECTOR_STORAGE<T, dim + 1>& DBC,
 	MESH_ELEM<dim - 1>& Elem,
 	const std::vector<VECTOR<int, 2>>& seg,
@@ -665,6 +665,9 @@ void ComputeTrajectoryGradient(
 			global_DBCb[i * n_vert + j] = DBCb[j];
 		}
 	}
+
+	int H_nonzero = 0;
+	int HTH_nonzero = 0;
 
 	for (int i = 0; i < n_frame; ++i) {
 		// prepare X, Xn, and Xtilde, set [v] in nodeAttr =======================================================
@@ -799,6 +802,9 @@ void ComputeTrajectoryGradient(
 			dHat2, kappa, mu, epsv2, false, bodyForce, elasticityAttr, 
 			tet, tetAttr, tetElasticityAttr, rod, rodInfo, rodHinge, rodHingeInfo, 
 			stitchInfo, stitchRatio, k_stitch, true, sysMtr, false);
+
+		H_nonzero = sysMtr.Get_Matrix().nonZeros();
+		HTH_nonzero = Eigen::SparseMatrix<T, Eigen::RowMajor>(sysMtr.Get_Matrix() * sysMtr.Get_Matrix().transpose()).nonZeros();
 		
 		if (k_wind > 0) {
 			Compute_Wind_Force<T, dim>(k_wind, wind_dir, DBCb, Elem, elasticityAttr, Xn, force);
@@ -823,13 +829,13 @@ void ComputeTrajectoryGradient(
 
 		// accumulate to triplets
 		Add_Block(sysMtr.Get_Matrix(), triplets, i * n_vert * dim, i * n_vert * dim);
-		Add_Block(M.Get_Matrix(), triplets, i * n_vert * dim, (i - 1 + n_frame) % n_frame * n_vert * dim, -2.0);
-		Add_Block(M.Get_Matrix(), triplets, i * n_vert * dim, (i - 2 + n_frame) % n_frame * n_vert * dim);
+		Add_Block(M.Get_Matrix(), triplets, (i - 1 + n_frame) % n_frame * n_vert * dim, i * n_vert * dim, -2.0);
+		Add_Block(M.Get_Matrix(), triplets, (i - 2 + n_frame) % n_frame * n_vert * dim, i * n_vert * dim);
 
 		if (k_wind > 0) {
 			std::vector<Eigen::Triplet<T>> wind_triplets;
 			Compute_Wind_Hessian<T, dim>(k_wind, wind_dir, DBCb, Elem, elasticityAttr, Xn, wind_triplets);
-			Add_Block(wind_triplets, triplets, i * n_vert * dim, (i - 1 + n_frame) % n_frame * n_vert * dim, -h * h);
+			Add_Block(wind_triplets, triplets, (i - 1 + n_frame) % n_frame * n_vert * dim, i * n_vert * dim, -h * h, true);
 		}
 
 		if (p > 2) {
@@ -849,20 +855,21 @@ void ComputeTrajectoryGradient(
 #endif
 	}
 
-	printf("finish per-frame residual and triplets\n");
+	printf("finish per-frame residual and triplets (%d), H (%d) HTH (%d)\n", triplets.size(), H_nonzero, HTH_nonzero);
 
 	A.Construct_From_Triplet(n_frame * n_vert * dim, n_frame * n_vert * dim, triplets);
+	printf("AT nonzeros: %d\n", A.Get_Matrix().nonZeros());
 
 	Eigen::VectorXd eigen_residual(n_frame * n_vert * dim);
 	node_to_eigen(residual, eigen_residual);
-	Eigen::VectorXd eigen_gradient = A.Get_Matrix().transpose() * eigen_residual;
+	Eigen::VectorXd eigen_gradient = A.Get_Matrix() * eigen_residual;
 	eigen_to_node(eigen_gradient, gradient);
 
 	if constexpr (SC) {
 		if (epsilon > 0) {
 			X0.Join(X1).Par_Each([&](int idx, auto data) {
 				auto &[x0, x1] = data;
-				T a = M.Get_Item(idx * dim, idx * dim) / epsilon;
+				T a = M.Get_Item(idx * dim, idx * dim) * epsilon;
 				std::get<0>(gradient.Get_Unchecked((n_frame - 2) * n_vert + idx)) += a * (std::get<0>(trajctory.Get_Unchecked((n_frame - 2) * n_vert + idx)) - x0);
 				std::get<0>(gradient.Get_Unchecked((n_frame - 1) * n_vert + idx)) += a * (std::get<0>(trajctory.Get_Unchecked((n_frame - 1) * n_vert + idx)) - x1);
 			});
@@ -891,20 +898,21 @@ void ComputeTrajectoryGradient(
 
 		CSR_MATRIX<T> H;
 		if (p == 2) {
-			H.Get_Matrix() = A.Get_Matrix().transpose() * A.Get_Matrix();
+			H.Get_Matrix() = (A.Get_Matrix() * A.Get_Matrix().transpose()).pruned(1e-6);
 		}
 		else {
 			CSR_MATRIX<T> d2X;
 			d2X.Construct_From_Triplet(n_frame * n_vert * dim, n_frame * n_vert * dim, dx_triplets);
-			H.Get_Matrix() = A.Get_Matrix().transpose() * d2X.Get_Matrix() * A.Get_Matrix();
+			H.Get_Matrix() = (A.Get_Matrix() * d2X.Get_Matrix() * A.Get_Matrix().transpose()).pruned(1e-6);
 		}
+		printf("ATA nonzeros: %d\n", H.Get_Matrix().nonZeros());
 
 		if constexpr (SC) {
 			if (epsilon > 0) {
 			// add to hessian
 				for (int i = 0; i < n_vert * dim; ++i) {
-					H.Get_Item((n_frame - 2) * n_vert * dim + i, (n_frame - 2) * n_vert * dim + i) += M.Get_Item(i, i) / epsilon;
-					H.Get_Item((n_frame - 1) * n_vert * dim + i, (n_frame - 1) * n_vert * dim + i) += M.Get_Item(i, i) / epsilon;
+					H.Get_Item((n_frame - 2) * n_vert * dim + i, (n_frame - 2) * n_vert * dim + i) += M.Get_Item(i, i) * epsilon;
+					H.Get_Item((n_frame - 1) * n_vert * dim + i, (n_frame - 1) * n_vert * dim + i) += M.Get_Item(i, i) * epsilon;
 				}
 			}
 		}
@@ -918,7 +926,7 @@ void ComputeTrajectoryGradient(
 
 		H.Project_DBC(global_DBCb, 3);
 
-		// A.Construct_From_Triplet(n_frame * n_vert * dim, n_frame * n_vert * dim, triplets);
+		// b = - A^T * R = -g
 		std::vector<T> sol(n_frame * n_vert * dim);
 		std::vector<T> rhs(n_frame * n_vert * dim);
 
@@ -929,24 +937,19 @@ void ComputeTrajectoryGradient(
 			}
 		});
 
-		printf("finish Gauss-Newton hessian computation\n");
+		if (use_cg) {
+			// AMGCL
+			std::memset(sol.data(), 0, sizeof(T) * sol.size());
+			Solve<T, dim>(H, rhs, sol, cg_tol, cg_iter, Gauss_Newton_Params<dim>(), true);
+		}
+		else {
+			// direct factorization
 
-		{
-			TIMER_FLAG("linear solve");
-
-			if (use_cg) {
-				// AMGCL
-				std::memset(sol.data(), 0, sizeof(T) * sol.size());
-				Solve<T, dim>(H, rhs, sol, 1.0e-5, CG_iter_ratio * n_frame * n_vert * dim, Default_FEM_Params<dim>(), true);
-			}
-			else {
-				// direct factorization
-				T regular = 1e-6;
-				while (!Solve_Direct(H, rhs, sol)) {
-					std::cout << "add identity: " << regular << std::endl;
-					H.Add_Identity(regular);
-					regular *= 10;
-				}
+			T regular = 1e-6;
+			while (!Solve_Direct(H, rhs, sol)) {
+				std::cout << "add identity: " << regular << std::endl;
+				H.Add_Identity(regular);
+				regular *= 10;
 			}
 		}
 
@@ -1025,7 +1028,7 @@ void ComputeTrajectoryGradient(
 
 template <class T, int dim, bool SC, bool GN, bool KL=false, bool elasticIPC=false, bool flow=false>
 void ComputeTrajectoryGradientMinMax(
-	int n_vert, int n_frame, T h, T epsilon, T CG_iter_ratio, bool use_cg, 
+	int n_vert, int n_frame, T h, T epsilon, bool use_cg, int cg_iter, T cg_tol,
 	const std::vector<T>& loss_per_frame,
 	VECTOR_STORAGE<T, dim + 1>& DBC,
 	MESH_ELEM<dim - 1>& Elem,
@@ -1328,7 +1331,7 @@ void ComputeTrajectoryGradientMinMax(
 		if (use_cg) {
 			// AMGCL
 			std::memset(sol.data(), 0, sizeof(T) * sol.size());
-			Solve<T, dim>(local_H, rhs, sol, 1.0e-5, CG_iter_ratio * n_frame * n_vert * dim, Default_FEM_Params<dim>(), true);
+			Solve<T, dim>(local_H, rhs, sol, cg_tol, cg_iter, Default_FEM_Params<dim>(), true);
 		}
 		else {
 			// direct factorization
