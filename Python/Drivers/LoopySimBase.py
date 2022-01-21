@@ -306,6 +306,7 @@ class LoopySimBase:
             MeshIO.Zero_Velocity(self.nodeAttr)
 
     def write(self, frame_idx):
+        MeshIO.Write_TriMesh_Obj(self.X, self.Elem, self.output_folder + "shell" + str(frame_idx) + ".obj")
         if self.outputSeg:
             MeshIO.Write_SegMesh_Obj(self.X, self.segs, self.output_folder + "seg" + str(frame_idx) + ".obj")
         if self.outputRod:
@@ -313,5 +314,3 @@ class LoopySimBase:
         if self.withVol:
             MeshIO.Write_Surface_TriMesh_Obj(self.X, self.TriVI2TetVI, self.Tri, \
                     self.output_folder + "vol" + str(frame_idx) + ".obj")
-            return
-        MeshIO.Write_TriMesh_Obj(self.X, self.Elem, self.output_folder + "shell" + str(frame_idx) + ".obj")

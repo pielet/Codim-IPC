@@ -55,7 +55,7 @@ else:
 fig, axis = plt.subplots(1, 1)
    
 axis.set_xlim(-1, n_frame)
-axis.set_ylim(0, loss_per_frame[-1].max())
+axis.set_ylim(0, loss_per_frame[:, 2:].max())
 data = axis.plot(np.arange(n_frame))[0]
 
 def update(i):

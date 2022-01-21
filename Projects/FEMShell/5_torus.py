@@ -19,9 +19,9 @@ if __name__ == "__main__":
     sim.frame_num = 90
     sim.withCollision = False
     
-    sim.add_object_3D("../FEMShell/input/bunny_300.mesh", Vector3d(0, 0, 0), \
-        Vector3d(0, 0, 0), Vector3d(1, 0, 0), 0, Vector3d(3, 3, 3))
-    DBC_range = sim.set_DBC(Vector3d(-0.1, -0.1, -0.1), Vector3d(1.1, 0.02, 1.1))
+    sim.add_object_3D("../FEMShell/input/torus.mesh", Vector3d(0, 0, 0), \
+        Vector3d(0, 0, 0), Vector3d(1, 0, 0), 30, Vector3d(0.5, 0.5, 0.5))
+    # DBC_range = sim.set_DBC(Vector3d(-0.1, -0.1, -0.1), Vector3d(1.1, 0.02, 1.1))
     # DBC_range = sim.set_DBC(Vector3d(-0.1, 0.9, -0.1), Vector3d(1.1, 1.1, 1.1))
 
     # for i in range(10):
@@ -35,7 +35,7 @@ if __name__ == "__main__":
         # iso, no strain limit
         sim.initialize(cloth_material, False, membEMult, bendEMult)
 
-    sim.initialize_added_objects(Vector3d(0, 0, 1.2), 1e3, 5e4, 0.4)
+    sim.initialize_added_objects(Vector3d(0, 0, 0), 1e3, 5e4, 0.4)
     # sim.initialize_added_objects(Vector3d(0, 0, 0), 1e3, 100, 0.4)
     sim.initialize_OIPC(1e-3, 0)
 
@@ -60,7 +60,7 @@ if __name__ == "__main__":
             opt.n_epoch = 300
             opt.epsilon = 0
 
-            opt.use_cg = False
+            opt.use_cg = True
             opt.cg_iter = 5000000
             opt.cg_tol = 1e-6
             opt.cg_regu = 1e-6

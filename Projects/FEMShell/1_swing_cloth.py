@@ -3,7 +3,7 @@ sys.path.insert(0, "../../Python")
 import Drivers
 from JGSL import *
 
-b_opt = False
+b_opt = True
 
 if __name__ == "__main__":
     sim = Drivers.LoopySimBase("double", 3, b_opt)
@@ -16,7 +16,7 @@ if __name__ == "__main__":
     bendEMult = 1
 
     sim.dt = 0.02
-    sim.frame_num = 1000
+    sim.frame_num = 100
     sim.withCollision = False
     
     sim.add_shell_3D("input/square11_static.obj", Vector3d(0, 0, 0), \
@@ -53,15 +53,18 @@ if __name__ == "__main__":
             opt.init_med = sys.argv[4]
         opt.load_path = "output/" + sys.argv[0].split('.')[0] + "/trajectory.txt"
 
-        opt.n_epoch = 300
-        if len(sys.argv) > 5:
-            opt.epsilon = float(sys.argv[5])
+        if opt_param == "force":
+            opt.n_epoch = 100
+            opt.epsilon = 1
+            opt.alpha = 1
+        elif opt_param == "trajectory":
+            opt.n_epoch = 2
+            opt.epsilon = 0
 
-        opt.p = 2
-        opt.minmax = False
-
-        opt.use_cg = False
-        opt.cg_iter_ratio = 0.05
+            opt.use_cg = False
+            opt.cg_iter = 5000000
+            opt.cg_tol = 1e-6
+            opt.cg_regu = 1e-6
 
         opt.initialize()
         opt.run()

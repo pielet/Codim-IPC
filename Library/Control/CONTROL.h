@@ -591,7 +591,7 @@ bool ComputeLoopyLoss(
 
 template <class T, int dim, bool SC, bool GN, bool KL=false, bool elasticIPC=false, bool flow=false>
 void ComputeTrajectoryGradient(
-	int n_vert, int n_frame, T h, int p, T epsilon, bool use_cg, int cg_iter, T cg_tol,
+	int n_vert, int n_frame, T h, int p, T epsilon, bool use_cg, int cg_iter, T cg_tol, T regu,
 	VECTOR_STORAGE<T, dim + 1>& DBC,
 	MESH_ELEM<dim - 1>& Elem,
 	const std::vector<VECTOR<int, 2>>& seg,
@@ -784,6 +784,15 @@ void ComputeTrajectoryGradient(
 			}
 		}
 		
+		// compute deformation gradient
+		if (kappa_s[0] > 0 || fiberStiffMult[0] > 0 || tet.size > 0) {
+			T E;
+			bool valid = Compute_IncPotential<T, dim, KL, elasticIPC, flow>(Elem, h, edge2tri, edgeStencil, edgeInfo, thickness, bendingStiffMult, fiberStiffMult, 
+				fiberLimit, s, sHat, kappa_s, DBCb, X, Xtilde, nodeAttr, M, elemAttr, elasticityAttr, 
+				false, constraintSet, stencilInfo, dHat2, kappa, false, bodyForce, 
+				tet, tetAttr, tetElasticityAttr, rod, rodInfo, rodHinge, rodHingeInfo, stitchInfo, stitchRatio, k_stitch, E);
+		}
+
 		// compute gradient
 		Compute_IncPotential_Gradient<T, dim, KL, elasticIPC, flow>(Elem, h, edge2tri, edgeStencil, edgeInfo, 
 			thickness, bendingStiffMult, fiberStiffMult, fiberLimit,
@@ -793,18 +802,6 @@ void ComputeTrajectoryGradient(
 		if (withCollision && mu > 0) {
 			Compute_Friction_Gradient(X, Xn, fricConstraintSet, closestPoint, tanBasis, normalForce, epsv2 * h * h, mu, nodeAttr);
 		}
-
-		// compute hessian
-		CSR_MATRIX<T> sysMtr;
-		Compute_IncPotential_Hessian<T, dim, KL, elasticIPC, flow>(Elem, h, edge2tri, edgeStencil, edgeInfo, thickness, bendingStiffMult, fiberStiffMult, fiberLimit,
-			s, sHat, kappa_s, DBC, DBCb, DBCb_fixed, DBCStiff, X, Xn, Xtilde, nodeAttr, M, elemAttr, 
-			withCollision, constraintSet, stencilInfo, fricConstraintSet, closestPoint, tanBasis, normalForce,
-			dHat2, kappa, mu, epsv2, false, bodyForce, elasticityAttr, 
-			tet, tetAttr, tetElasticityAttr, rod, rodInfo, rodHinge, rodHingeInfo, 
-			stitchInfo, stitchRatio, k_stitch, true, sysMtr, false);
-
-		H_nonzero = sysMtr.Get_Matrix().nonZeros();
-		HTH_nonzero = Eigen::SparseMatrix<T, Eigen::RowMajor>(sysMtr.Get_Matrix() * sysMtr.Get_Matrix().transpose()).nonZeros();
 		
 		if (k_wind > 0) {
 			Compute_Wind_Force<T, dim>(k_wind, wind_dir, DBCb, Elem, elasticityAttr, Xn, force);
@@ -826,6 +823,18 @@ void ComputeTrajectoryGradient(
 				}
 			}
 		});
+
+		// compute hessian
+		CSR_MATRIX<T> sysMtr;
+		Compute_IncPotential_Hessian<T, dim, KL, elasticIPC, flow>(Elem, h, edge2tri, edgeStencil, edgeInfo, thickness, bendingStiffMult, fiberStiffMult, fiberLimit,
+			s, sHat, kappa_s, DBC, DBCb, DBCb_fixed, DBCStiff, X, Xn, Xtilde, nodeAttr, M, elemAttr, 
+			withCollision, constraintSet, stencilInfo, fricConstraintSet, closestPoint, tanBasis, normalForce,
+			dHat2, kappa, mu, epsv2, false, bodyForce, elasticityAttr, 
+			tet, tetAttr, tetElasticityAttr, rod, rodInfo, rodHinge, rodHingeInfo, 
+			stitchInfo, stitchRatio, k_stitch, true, sysMtr, false);
+
+		H_nonzero = sysMtr.Get_Matrix().nonZeros();
+		HTH_nonzero = Eigen::SparseMatrix<T, Eigen::RowMajor>(sysMtr.Get_Matrix() * sysMtr.Get_Matrix().transpose()).nonZeros();
 
 		// accumulate to triplets
 		Add_Block(sysMtr.Get_Matrix(), triplets, i * n_vert * dim, i * n_vert * dim);
@@ -864,6 +873,14 @@ void ComputeTrajectoryGradient(
 	node_to_eigen(residual, eigen_residual);
 	Eigen::VectorXd eigen_gradient = A.Get_Matrix() * eigen_residual;
 	eigen_to_node(eigen_gradient, gradient);
+
+	// for visualization
+	for (int i = 0; i < n_frame; ++i) {
+		DBC.Par_Each([&](int id, auto data) {
+			auto &[dbcI] = data;
+			std::get<0>(residual.Get_Unchecked(i * n_vert + dbcI(0))).setZero();
+		});
+	}
 
 	if constexpr (SC) {
 		if (epsilon > 0) {
@@ -939,6 +956,7 @@ void ComputeTrajectoryGradient(
 
 		if (use_cg) {
 			// AMGCL
+			H.Add_Identity(regu);
 			std::memset(sol.data(), 0, sizeof(T) * sol.size());
 			Solve<T, dim>(H, rhs, sol, cg_tol, cg_iter, Gauss_Newton_Params<dim>(), true);
 		}
@@ -1028,7 +1046,7 @@ void ComputeTrajectoryGradient(
 
 template <class T, int dim, bool SC, bool GN, bool KL=false, bool elasticIPC=false, bool flow=false>
 void ComputeTrajectoryGradientMinMax(
-	int n_vert, int n_frame, T h, T epsilon, bool use_cg, int cg_iter, T cg_tol,
+	int n_vert, int n_frame, T h, T epsilon, bool use_cg, int cg_iter, T cg_tol, T regu,
 	const std::vector<T>& loss_per_frame,
 	VECTOR_STORAGE<T, dim + 1>& DBC,
 	MESH_ELEM<dim - 1>& Elem,
@@ -1330,6 +1348,7 @@ void ComputeTrajectoryGradientMinMax(
 		std::vector<T> rhs(local_g.data(), local_g.data() + local_g.size());
 		if (use_cg) {
 			// AMGCL
+			local_H.Add_Identity(regu);
 			std::memset(sol.data(), 0, sizeof(T) * sol.size());
 			Solve<T, dim>(local_H, rhs, sol, cg_tol, cg_iter, Default_FEM_Params<dim>(), true);
 		}

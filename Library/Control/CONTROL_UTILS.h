@@ -27,7 +27,7 @@ void Append_NodeAttr(MESH_NODE_ATTR<T, dim>& src, MESH_NODE_ATTR<T, dim>& dst)
 }
 
 template <class T, int dim>
-void SetZero(MESH_NODE<T, dim> X)
+void SetZero(MESH_NODE<T, dim>& X)
 {
 	X.Par_Each([](int idx, auto data) {
 		auto &[x] = data;
@@ -83,7 +83,7 @@ void Axpy(T a, MESH_NODE<T, dim>& x, MESH_NODE<T, dim>& y)
 }
 
 template <class T, int dim>
-void Copy(MESH_NODE<T, dim>& x, MESH_NODE<T, dim> y)
+void Copy(MESH_NODE<T, dim>& x, MESH_NODE<T, dim>& y)
 {
 	x.deep_copy_to(y);
 }
