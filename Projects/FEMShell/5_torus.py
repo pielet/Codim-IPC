@@ -3,7 +3,7 @@ sys.path.insert(0, "../../Python")
 import Drivers
 from JGSL import *
 
-b_opt = True
+b_opt = False
 
 if __name__ == "__main__":
     sim = Drivers.LoopySimBase("double", 3, b_opt)
@@ -18,15 +18,13 @@ if __name__ == "__main__":
     sim.dt = 0.01
     sim.frame_num = 90
     sim.withCollision = False
+
+    sim.withPenaltyCollision = True
     
     sim.add_object_3D("../FEMShell/input/torus.mesh", Vector3d(0, 0, 0), \
         Vector3d(0, 0, 0), Vector3d(1, 0, 0), 30, Vector3d(0.5, 0.5, 0.5))
-    # DBC_range = sim.set_DBC(Vector3d(-0.1, -0.1, -0.1), Vector3d(1.1, 0.02, 1.1))
-    # DBC_range = sim.set_DBC(Vector3d(-0.1, 0.9, -0.1), Vector3d(1.1, 1.1, 1.1))
 
-    # for i in range(10):
-    #     sim.add_motion(2.0 * i, 2.0 * i + 1.0, DBC_range, Vector3d(-0.5, 0, 0), Vector3d(0, 0, 0), Vector3d(0, 1, 0), 0)
-    #     sim.add_motion(2.0 * i + 1.0, 2.0 * (i + 1), DBC_range, Vector3d(0.5, 0, 0), Vector3d(0, 0, 0), Vector3d(0, 1, 0), 0)
+    sim.add_plane(2, 0, 1.0, 0.0, Vector3d(0, -0.5, 0), Vector3d(0, 1, 0))
 
     if strain_limit:
         # iso

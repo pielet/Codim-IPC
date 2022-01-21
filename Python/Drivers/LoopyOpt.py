@@ -26,6 +26,7 @@ class LoopyOpt:
 		param_med: force, trajectory
 		opt_med: GD (gradient descent_, L-BFGS, GN (Gauss-Newton), and FP (fast projection) (force-based only)
 		"""
+		self.b_debug = True
 		self.sim = sim
 		self.opt_param = opt_param
 		self.constrain_form = constrain_form
@@ -63,6 +64,7 @@ class LoopyOpt:
 		self.init_DBC = Storage.V4dStorage()
 		self.one_frame = Storage.V3dStorage()
 		self.trajectory = Storage.V3dStorage()
+		self.loopy_trajectory = Storage.V3dStorage()
 		self.control_force = Storage.V3dStorage()
 		# line-search
 		self.alpha = 1.0
@@ -112,6 +114,7 @@ class LoopyOpt:
 		Control.Fill(self.one_frame, self.n_vert)
 		Control.Fill(self.control_force, self.n_vert * self.n_frame)
 		Control.Fill(self.trajectory, self.n_vert * self.n_frame)
+		Control.Fill(self.loopy_trajectory, self.n_vert * self.n_frame)
 
 		Control.Fill(self.gradient, self.n_vert * self.n_frame)
 		Control.Fill(self.descent_dir, self.n_vert * self.n_frame)
@@ -142,17 +145,19 @@ class LoopyOpt:
 
 		if self.opt_param == "force":
 			self.forward(self.control_force)
+			Control.Copy(self.trajectory, self.loopy_trajectory)
+			Control.SetFrame(self.n_frame - 2, self.loopy_trajectory, self.X0)
+			Control.SetFrame(self.n_frame - 1, self.loopy_trajectory, self.X1)
+			_, _ = self.compute_trajectory_loss(self.loopy_trajectory, False)
 			self.loss = self.compute_force_loss(self.control_force, self.trajectory)
-			_, _ = self.compute_trajectory_loss(self.trajectory)
 			print(f"[init] loss: {self.loss}, force: {self.force_loss}, constrain: {self.constrain_loss}, loopy: {self.loopy_loss}")
 		elif self.opt_param == "trajectory":
 			if self.init_med == "load":
 				Control.Read(self.trajectory, self.load_path) # read anyway
 			else:
 				self.forward(self.control_force)
-			if self.constrain_form == "hard":
-				Control.SetFrame(self.n_frame - 2, self.trajectory, self.X0)
-				Control.SetFrame(self.n_frame - 1, self.trajectory, self.X1)
+			Control.SetFrame(self.n_frame - 2, self.trajectory, self.X0)
+			Control.SetFrame(self.n_frame - 1, self.trajectory, self.X1)
 
 			self.valid, self.loss = self.compute_trajectory_loss(self.trajectory)
 			Control.Write(self.loss_residual, init_folder + "/residual.txt")
@@ -176,6 +181,11 @@ class LoopyOpt:
 		end = time.time()
 		with open(self.output_folder + "loss.txt", 'a') as f:
 			f.write(f"total time: {end - start}, avg. time: {(end - start) / total_epoch}")
+
+		if not self.b_debug:
+			final_folder = self.output_folder + f"epoch_{total_epoch}/"
+			make_directory(final_folder)
+			self.output_trajectory(final_folder)
 
 	def alternate(self):
 		cur_epoch = 0
@@ -247,9 +257,10 @@ class LoopyOpt:
 
 	def one_iter(self, cur_epoch):
 		print(f"============================= epoch {cur_epoch} ==========================")
-		epoch_folder = self.output_folder + f"epoch_{cur_epoch}/"
-		make_directory(epoch_folder)
-		self.sim.output_folder = epoch_folder
+		if self.b_debug:
+			epoch_folder = self.output_folder + f"epoch_{cur_epoch}/"
+			make_directory(epoch_folder)
+			self.sim.output_folder = epoch_folder
 
 		if self.opt_param == "force":
 			print("[compute adjoint vector]")
@@ -276,7 +287,10 @@ class LoopyOpt:
 
 				b_converge = self.force_line_search()
 
-			self.compute_trajectory_loss(self.trajectory)
+			Control.Copy(self.trajectory, self.loopy_trajectory)
+			Control.SetFrame(self.n_frame - 2, self.loopy_trajectory, self.X0)
+			Control.SetFrame(self.n_frame - 1, self.loopy_trajectory, self.X1)
+			_, _ = self.compute_trajectory_loss(self.loopy_trajectory, False)
 			print(f"loss: {self.loss}, force: {self.force_loss}, constrain: {self.constrain_loss}, loopy: {self.loopy_loss}")
 
 			# TIMER_FLUSH(cur_epoch + 1, self.n_epoch, cur_epoch + 1, self.n_epoch)
@@ -332,8 +346,9 @@ class LoopyOpt:
 			print(f"valid: {self.valid}, loss: {self.loss}, loopy: {self.loopy_loss}, constrain: {self.constrain_loss}")
 
 		self.output_loss()
-		self.output_trajectory(epoch_folder)
-		self.output_debug_info(epoch_folder)
+		if self.b_debug:
+			self.output_trajectory(epoch_folder)
+			self.output_debug_info(epoch_folder)
 
 		# TIMER_FLUSH(cur_epoch + 1, self.n_epoch, cur_epoch + 1, self.n_epoch)
 
@@ -450,7 +465,7 @@ class LoopyOpt:
 		elif self.constrain_form == "hard":
 			return self.force_loss + self.L * self.constrain_loss
 
-	def compute_trajectory_loss(self, trajectory):
+	def compute_trajectory_loss(self, trajectory, b_con=True):
 		valid = Control.ComputeLoopyLoss(self.n_vert, self.n_frame, self.dt, self.p,
 			self.sim.DBC, self.sim.Elem, self.sim.segs, self.sim.edge2tri, self.sim.edgeStencil, self.sim.edgeInfo,
 			self.sim.thickness, self.sim.bendingStiffMult, self.sim.fiberStiffMult, self.sim.inextLimit, self.sim.s, self.sim.sHat, self.sim.kappa_s,
@@ -466,7 +481,8 @@ class LoopyOpt:
 				self.loss_per_frame[i] /= self.dt ** 4
 				self.loopy_loss += self.loss_per_frame[i]
 		
-		self.constrain_loss = Control.ComputeConstrain(self.n_vert, self.n_frame, self.sim.massMatrix, self.X0, self.X1, trajectory)
+		if b_con:
+			self.constrain_loss = Control.ComputeConstrain(self.n_vert, self.n_frame, self.sim.massMatrix, self.X0, self.X1, trajectory)
 		
 		loss = self.loopy_loss + self.n_frame * self.epsilon / (self.dt ** 3) * self.constrain_loss
 

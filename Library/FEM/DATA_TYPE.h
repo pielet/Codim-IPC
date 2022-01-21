@@ -32,4 +32,7 @@ using VECTOR_STORAGE = BASE_STORAGE<VECTOR<T, dim>>;
 
 using V3dStorage = VECTOR_STORAGE<double, 3>;
 
+template <class T, int dim>
+using GROUND = BASE_STORAGE<int, T, T, T, VECTOR<T, dim>, VECTOR<T, dim>>; // p, mu, kn, kf, origin, dir
+
 }

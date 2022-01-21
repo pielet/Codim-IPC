@@ -28,8 +28,8 @@ if med.split('_')[0] == "force":
 	min_con_i = np.argmin(loss[:, -2])
 	min_loopy_i = np.argmin(loss[:, -1])
 
-	print(f"best constrain epoch {min_con_i}: loss {loss[min_con_i, 1]}, force {loss[min_con_i, 2]}, constrain {loss[min_con_i, 3]}, loopy {loss[min_con_i, 4]}")
-	print(f"best loopy epoch {min_loopy_i}: loss {loss[min_loopy_i, 1]}, force {loss[min_loopy_i, 2]}, constrain {loss[min_loopy_i, 3]}, loopy {loss[min_loopy_i, 4]}")
+	print(f"best constrain epoch {min_con_i - 1}: loss {loss[min_con_i, 1]}, force {loss[min_con_i, 2]}, constrain {loss[min_con_i, 3]}, loopy {loss[min_con_i, 4]}")
+	print(f"best loopy epoch {min_loopy_i - 1}: loss {loss[min_loopy_i, 1]}, force {loss[min_loopy_i, 2]}, constrain {loss[min_loopy_i, 3]}, loopy {loss[min_loopy_i, 4]}")
 
 	plt.plot(loss[:, 1])
 	plt.savefig(loss_path + "loss.png")
@@ -55,7 +55,7 @@ else:
 fig, axis = plt.subplots(1, 1)
    
 axis.set_xlim(-1, n_frame)
-axis.set_ylim(0, loss_per_frame[:, 2:].max())
+axis.set_ylim(0, loss_per_frame[:, :-2].max())
 data = axis.plot(np.arange(n_frame))[0]
 
 def update(i):

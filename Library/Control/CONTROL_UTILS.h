@@ -4,6 +4,7 @@
 #include <Math/CSR_MATRIX.h>
 #include <FEM/DATA_TYPE.h>
 #include <Control/BOUNDARY_CONDITION.h>
+#include <Control/COLLISION.h>
 
 namespace JGSL {
 
@@ -264,6 +265,8 @@ void Export_Control_Utils(py::module& m)
 	m.def("Set_Dirichlet", &Set_Dirichlet<double, 3>);
     m.def("Add_DBC_Motion", &Add_DBC_Motion<double, 3>);
     m.def("Update_Dirichlet", &Update_Dirichlet<double, 3>);
+
+    m.def("Add_Plane", &Add_Plane<double, 3>);
 }
 
 }

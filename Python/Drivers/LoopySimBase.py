@@ -94,6 +94,9 @@ class LoopySimBase:
         self.k_wind = 0
         self.wind_dir = Vector3d(1, 0, 0)
 
+        self.withPenaltyCollision = False
+        self.planes = Storage.Plane()
+
         # 100% cotton, 100% wool, 95% wool 5% lycra, 100% polyester (PES), paper
         self.cloth_density_iso = [472.641509, 413.380282, 543.292683, 653.174603, 800]
         self.cloth_thickness_iso = [0.318e-3, 0.568e-3, 0.328e-3, 0.252e-3, 0.3e-3]
@@ -208,6 +211,9 @@ class LoopySimBase:
         print(f"add component, #total_vertex_num={self.n_vert}")
         return meshCounter
 
+    def add_plane(self, p, mu, kn, kf, origin, normal):
+        Control.Add_Plane(p, mu, kn, kf, origin, normal, self.planes)
+
     def initialize(self, clothI, b_SL, membEMult=0.01, bendEMult=1, b_gravity=True):
         MeshIO.Append_Attribute(self.X, self.X0)
         self.shell_density = self.cloth_density_iso[clothI]
@@ -279,7 +285,7 @@ class LoopySimBase:
                 self.X, self.nodeAttr, self.massMatrix, self.elemAttr, self.elasticity, \
                 self.tet, self.tetAttr, self.tetElasticity, self.rod, self.rodInfo, \
                 self.rodHinge, self.rodHingeInfo, self.stitchInfo, self.stitchRatio, self.k_stitch,\
-                self.discrete_particle, self.output_folder)
+                self.discrete_particle, self.withPenaltyCollision, self.planes, self.output_folder)
         else:
             self.PNIterCount = self.PNIterCount + Control.Step(cur_step, self.Elem, self.segs, self.DBC, \
                 self.edge2tri, self.edgeStencil, self.edgeInfo, \
@@ -289,7 +295,7 @@ class LoopySimBase:
                 self.X, self.nodeAttr, self.massMatrix, self.elemAttr, self.elasticity, \
                 self.tet, self.tetAttr, self.tetElasticity, self.rod, self.rodInfo, \
                 self.rodHinge, self.rodHingeInfo, self.stitchInfo, self.stitchRatio, self.k_stitch,\
-                self.discrete_particle, self.output_folder)
+                self.discrete_particle, self.withPenaltyCollision, self.planes, self.output_folder)
         # self.load_velocity('/Users/minchen/Desktop/JGSL/Projects/FEMShell/output/shrink/', 1, dt)
         if self.scaleXMultStep != 1 or self.scaleYMultStep != 1 or self.scaleZMultStep != 1:
             self.scaleX *= self.scaleXMultStep

@@ -1,7 +1,8 @@
 #pragma once
 
-#include <FEM/Shell/INC_POTENTIAL.h>
+#include <Control/INC_POTENTIAL.h>
 #include <Control/WIND.h>
+#include <Control/COLLISION.h>
 
 #include <deque>
 
@@ -67,7 +68,8 @@ void LineSearch(
     std::vector<Eigen::Matrix<T, dim - 1, 1>>& closestPoint,
     std::vector<Eigen::Matrix<T, dim, dim - 1>>& tanBasis,
     std::vector<T>& normalForce,
-    T& DBCStiff, T& Eprev, T& alpha, T& feasibleAlpha)
+    T& DBCStiff, T& Eprev, T& alpha, T& feasibleAlpha,
+    bool withPenaltyCollision, GROUND<T, dim>& plane)
 {
     // line search
     MESH_NODE<T, dim> Xprev;
@@ -86,10 +88,10 @@ void LineSearch(
                 }
             });
             valid = Compute_IncPotential<T, dim, KL, elasticIPC, flow>(Elem, h, edge2tri, edgeStencil, edgeInfo, thickness, bendingStiffMult, fiberStiffMult, 
-                fiberLimit, s, sHat, kappa_s, DBCb, X, Xtilde, nodeAttr, M, elemAttr, elasticityAttr, 
+                fiberLimit, s, sHat, kappa_s, DBCb, X, Xn, Xtilde, nodeAttr, M, elemAttr, elasticityAttr, 
                 false, constraintSet, stencilInfo, dHat2, kappa, staticSolve, b, 
                 tet, tetAttr, tetElasticityAttr, rod, rodInfo, rodHinge, rodHingeInfo, 
-                stitchInfo, stitchRatio, k_stitch, E);
+                stitchInfo, stitchRatio, k_stitch, withPenaltyCollision, plane, E);
             if (!valid) {
                 alpha /= 2.0;
             }
@@ -117,10 +119,10 @@ void LineSearch(
             }
         });
         valid = Compute_IncPotential<T, dim, KL, elasticIPC, flow>(Elem, h, edge2tri, edgeStencil, edgeInfo, thickness, bendingStiffMult, fiberStiffMult, fiberLimit,
-            s, sHat, kappa_s, DBCb, X, Xtilde, nodeAttr, M, elemAttr, elasticityAttr, 
+            s, sHat, kappa_s, DBCb, X, Xn, Xtilde, nodeAttr, M, elemAttr, elasticityAttr, 
             false, constraintSet, stencilInfo, dHat2, kappa, staticSolve, b, 
             tet, tetAttr, tetElasticityAttr, rod, rodInfo, rodHinge, rodHingeInfo, 
-            stitchInfo, stitchRatio, k_stitch, E);
+            stitchInfo, stitchRatio, k_stitch, withPenaltyCollision, plane, E);
         if (valid) {
             if (withCollision) {
                 Compute_Constraint_Set<T, dim, false, elasticIPC>(X, nodeAttr, boundaryNode, boundaryEdge, boundaryTri, 
@@ -138,10 +140,10 @@ void LineSearch(
                 }
             }
             valid = Compute_IncPotential<T, dim, KL, elasticIPC, flow>(Elem, h, edge2tri, edgeStencil, edgeInfo, thickness, bendingStiffMult, fiberStiffMult, 
-                fiberLimit, s, sHat, kappa_s, DBCb, X, Xtilde, nodeAttr, M, elemAttr, elasticityAttr, 
+                fiberLimit, s, sHat, kappa_s, DBCb, X, Xn, Xtilde, nodeAttr, M, elemAttr, elasticityAttr, 
                 withCollision, constraintSet, stencilInfo, dHat2, kappa, staticSolve, b, 
                 tet, tetAttr, tetElasticityAttr, rod, rodInfo, rodHinge, rodHingeInfo, 
-                stitchInfo, stitchRatio, k_stitch, E);
+                stitchInfo, stitchRatio, k_stitch, withPenaltyCollision, plane, E);
             if (valid && withCollision && mu > 0) {
                 Compute_Friction_Potential(X, Xn, fricConstraintSet, closestPoint, tanBasis, normalForce, epsv2 * h * h, mu, E);
             }
@@ -198,6 +200,8 @@ int Step(
     const std::vector<T>& stitchRatio,
     T k_stitch,
     const std::vector<int>& particle,
+    bool withPenaltyCollision,
+    GROUND<T, dim>& plane,
     const std::string& outputFolder)
 {
     Eigen::setNbThreads(1);
@@ -483,10 +487,10 @@ int Step(
     T Eprev;
     // it includes contact
     Compute_IncPotential<T, dim, KL, elasticIPC, flow>(Elem, h, edge2tri, edgeStencil, edgeInfo, thickness, bendingStiffMult, fiberStiffMult, fiberLimit,
-        s, sHat, kappa_s, DBCb, X, Xtilde, nodeAttr, M, elemAttr, elasticityAttr, 
+        s, sHat, kappa_s, DBCb, X, Xn, Xtilde, nodeAttr, M, elemAttr, elasticityAttr, 
         withCollision, constraintSet, stencilInfo, dHat2, kappa, staticSolve, b, 
         tet, tetAttr, tetElasticityAttr, rod, rodInfo, rodHinge, rodHingeInfo, 
-        stitchInfo, stitchRatio, k_stitch, Eprev);
+        stitchInfo, stitchRatio, k_stitch, withPenaltyCollision, plane, Eprev);
     if (withCollision && mu > 0) {
         Compute_Friction_Potential(X, Xn, fricConstraintSet, closestPoint, tanBasis, normalForce, epsv2 * h * h, mu, Eprev);
     }
@@ -503,10 +507,10 @@ int Step(
     do {
         // compute gradient
         Compute_IncPotential_Gradient<T, dim, KL, elasticIPC, flow>(Elem, h, edge2tri, edgeStencil, edgeInfo, thickness, bendingStiffMult, fiberStiffMult, fiberLimit,
-            s, sHat, kappa_s, DBCb, X, Xtilde, nodeAttr, M, elemAttr, 
+            s, sHat, kappa_s, DBCb, X, Xn, Xtilde, nodeAttr, M, elemAttr, 
             withCollision, constraintSet, stencilInfo, dHat2, kappa, staticSolve, b, elasticityAttr, 
             tet, tetAttr, tetElasticityAttr, rod, rodInfo, rodHinge, rodHingeInfo,
-            stitchInfo, stitchRatio, k_stitch);
+            stitchInfo, stitchRatio, k_stitch, withPenaltyCollision, plane);
         if (withCollision && mu > 0) {
             Compute_Friction_Gradient(X, Xn, fricConstraintSet, closestPoint, tanBasis, normalForce, epsv2 * h * h, mu, nodeAttr);
         }
@@ -547,7 +551,7 @@ int Step(
                 withCollision, constraintSet, stencilInfo, fricConstraintSet, closestPoint, tanBasis, normalForce,
                 dHat2, kappa, mu, epsv2, staticSolve, b, elasticityAttr, 
                 tet, tetAttr, tetElasticityAttr, rod, rodInfo, rodHinge, rodHingeInfo, 
-                stitchInfo, stitchRatio, k_stitch, true, sysMtr);
+                stitchInfo, stitchRatio, k_stitch, true, withPenaltyCollision, plane, sysMtr);
         }
 
         // compute search direction
@@ -614,7 +618,7 @@ int Step(
             rod, rodInfo, rodHinge, rodHingeInfo, stitchInfo, stitchRatio, k_stitch, particle, outputFolder,
             sol, DBCb, Xn, Xtilde, constraintSet, stencilInfo, constraintSetPTEE, kappa, 
             boundaryNode, boundaryEdge, boundaryTri, NNExclusion, BNArea, BEArea, BTArea, codimBNStartInd, 
-            fricConstraintSet, closestPoint, tanBasis, normalForce, DBCStiff, Eprev, alpha, feasibleAlpha);
+            fricConstraintSet, closestPoint, tanBasis, normalForce, DBCStiff, Eprev, alpha, feasibleAlpha, withPenaltyCollision, plane);
 
         if constexpr (!elasticIPC) {
             if (constraintSet_prev.size()) {
@@ -633,10 +637,10 @@ int Step(
                     kappaVec[0] *= 2;
 
                     Compute_IncPotential<T, dim, KL, elasticIPC, flow>(Elem, h, edge2tri, edgeStencil, edgeInfo, thickness, bendingStiffMult, fiberStiffMult, fiberLimit,
-                        s, sHat, kappa_s, DBCb, X, Xtilde, nodeAttr, M, elemAttr, elasticityAttr, 
+                        s, sHat, kappa_s, DBCb, X, Xn, Xtilde, nodeAttr, M, elemAttr, elasticityAttr, 
                         withCollision, constraintSet, stencilInfo, dHat2, kappa, staticSolve, b, 
                         tet, tetAttr, tetElasticityAttr, rod, rodInfo, rodHinge, rodHingeInfo, 
-                        stitchInfo, stitchRatio, k_stitch, Eprev);
+                        stitchInfo, stitchRatio, k_stitch, withPenaltyCollision, plane, Eprev);
                     if (withCollision && mu > 0) {
                         Compute_Friction_Potential(X, Xn, fricConstraintSet, closestPoint, tanBasis, normalForce, epsv2 * h * h, mu, Eprev);
                     }
@@ -687,10 +691,10 @@ int Step(
                 kappa_s[0] *= 2;
 
                 Compute_IncPotential<T, dim, KL, elasticIPC, flow>(Elem, h, edge2tri, edgeStencil, edgeInfo, thickness, bendingStiffMult, fiberStiffMult, fiberLimit,
-                    s, sHat, kappa_s, DBCb, X, Xtilde, nodeAttr, M, elemAttr, elasticityAttr, 
+                    s, sHat, kappa_s, DBCb, X, Xn, Xtilde, nodeAttr, M, elemAttr, elasticityAttr, 
                     withCollision, constraintSet, stencilInfo, dHat2, kappa, staticSolve, b, 
                     tet, tetAttr, tetElasticityAttr, rod, rodInfo, rodHinge, rodHingeInfo, 
-                    stitchInfo, stitchRatio, k_stitch, Eprev);
+                    stitchInfo, stitchRatio, k_stitch, withPenaltyCollision, plane, Eprev);
                 if (withCollision && mu > 0) {
                     Compute_Friction_Potential(X, Xn, fricConstraintSet, closestPoint, tanBasis, normalForce, epsv2 * h * h, mu, Eprev);
                 }
@@ -791,10 +795,10 @@ int Step(
                     if (DBCStiff < 1e8) {
                         DBCStiff *= 2;
                         Compute_IncPotential<T, dim, KL, elasticIPC, flow>(Elem, h, edge2tri, edgeStencil, edgeInfo, thickness, bendingStiffMult, fiberStiffMult, fiberLimit,
-                            s, sHat, kappa_s, DBCb, X, Xtilde, nodeAttr, M, elemAttr, elasticityAttr, 
+                            s, sHat, kappa_s, DBCb, X, Xn, Xtilde, nodeAttr, M, elemAttr, elasticityAttr, 
                             withCollision, constraintSet, stencilInfo, dHat2, kappa, staticSolve, b, 
                             tet, tetAttr, tetElasticityAttr, rod, rodInfo, rodHinge, rodHingeInfo, 
-                            stitchInfo, stitchRatio, k_stitch, Eprev);
+                            stitchInfo, stitchRatio, k_stitch, withPenaltyCollision, plane, Eprev);
                         if (withCollision && mu > 0) {
                             Compute_Friction_Potential(X, Xn, fricConstraintSet, closestPoint, tanBasis, normalForce, epsv2 * h * h, mu, Eprev);
                         }
@@ -811,10 +815,10 @@ int Step(
                 DBCStiff = 0;
 
                 Compute_IncPotential<T, dim, KL, elasticIPC, flow>(Elem, h, edge2tri, edgeStencil, edgeInfo, thickness, bendingStiffMult, fiberStiffMult, 
-                    fiberLimit, s, sHat, kappa_s, DBCb, X, Xtilde, nodeAttr, M, elemAttr, elasticityAttr, 
+                    fiberLimit, s, sHat, kappa_s, DBCb, X, Xn, Xtilde, nodeAttr, M, elemAttr, elasticityAttr, 
                     withCollision, constraintSet, stencilInfo, dHat2, kappa, staticSolve, b, 
                     tet, tetAttr, tetElasticityAttr, rod, rodInfo, rodHinge, rodHingeInfo, 
-                    stitchInfo, stitchRatio, k_stitch, Eprev);
+                    stitchInfo, stitchRatio, k_stitch, withPenaltyCollision, plane, Eprev);
                 if (withCollision && mu > 0) {
                     Compute_Friction_Potential(X, Xn, fricConstraintSet, closestPoint, tanBasis, normalForce, epsv2 * h * h, mu, Eprev);
                 }
@@ -837,10 +841,10 @@ int Step(
 
                         // compute gradient
                         Compute_IncPotential_Gradient<T, dim, KL, elasticIPC, flow>(Elem, h, edge2tri, edgeStencil, edgeInfo, thickness, bendingStiffMult, fiberStiffMult, fiberLimit,
-                            s, sHat, kappa_s, DBCb, X, Xtilde, nodeAttr, M, elemAttr, 
+                            s, sHat, kappa_s, DBCb, X, Xn, Xtilde, nodeAttr, M, elemAttr, 
                             withCollision, constraintSet, stencilInfo, dHat2, kappa, staticSolve, b, elasticityAttr, 
                             tet, tetAttr, tetElasticityAttr, rod, rodInfo, rodHinge, rodHingeInfo,
-                            stitchInfo, stitchRatio, k_stitch);
+                            stitchInfo, stitchRatio, k_stitch, withPenaltyCollision, plane);
                         Compute_Friction_Gradient(X, Xn, fricConstraintSet, closestPoint, tanBasis, normalForce, epsv2 * h * h, mu, nodeAttr);
                         if (DBCStiff) {
                             Compute_DBC_Gradient(X, nodeAttr, DBC, DBCStiff);
@@ -871,7 +875,7 @@ int Step(
                             withCollision, constraintSet, stencilInfo, fricConstraintSet, closestPoint, tanBasis, normalForce,
                             dHat2, kappa, mu, epsv2, staticSolve, b, elasticityAttr, 
                             tet, tetAttr, tetElasticityAttr, rod, rodInfo, rodHinge, rodHingeInfo, 
-                            stitchInfo, stitchRatio, k_stitch, true, sysMtr);
+                            stitchInfo, stitchRatio, k_stitch, true, withPenaltyCollision, plane, sysMtr);
                         // compute search direction
                         {
                             TIMER_FLAG("linearSolve");
@@ -903,10 +907,10 @@ int Step(
 #endif
                         if (L2Norm > NewtonTol) {
                             Compute_IncPotential<T, dim, KL, elasticIPC, flow>(Elem, h, edge2tri, edgeStencil, edgeInfo, thickness, bendingStiffMult, fiberStiffMult, fiberLimit,
-                                s, sHat, kappa_s, DBCb, X, Xtilde, nodeAttr, M, elemAttr, elasticityAttr, 
+                                s, sHat, kappa_s, DBCb, X, Xn, Xtilde, nodeAttr, M, elemAttr, elasticityAttr, 
                                 withCollision, constraintSet, stencilInfo, dHat2, kappa, staticSolve, b, 
                                 tet, tetAttr, tetElasticityAttr, rod, rodInfo, rodHinge, rodHingeInfo, 
-                                stitchInfo, stitchRatio, k_stitch, Eprev);
+                                stitchInfo, stitchRatio, k_stitch, withPenaltyCollision, plane, Eprev);
                             Compute_Friction_Potential(X, Xn, fricConstraintSet, closestPoint, tanBasis, normalForce, epsv2 * h * h, mu, Eprev);
                             if (DBCStiff) {
                                 Compute_DBC_Energy(X, nodeAttr, DBC, DBCStiff, Eprev);
