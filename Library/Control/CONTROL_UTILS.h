@@ -3,6 +3,7 @@
 #include <pybind11/pybind11.h>
 #include <Math/CSR_MATRIX.h>
 #include <FEM/DATA_TYPE.h>
+#include <Utils/MESHIO.h>
 #include <Control/BOUNDARY_CONDITION.h>
 #include <Control/COLLISION.h>
 
@@ -14,6 +15,15 @@ void Fill(MESH_NODE<T, dim>& vec, int size)
 	vec.Reserve(size);
 	for (int i = 0; i < size; ++i) {
 		vec.Append(VECTOR<T, dim>(T(0)));
+	}
+}
+
+template <class T>
+void Fill_Std(std::vector<T>& vec, int size, T value = 0.0)
+{
+	vec.resize(size);
+	for (int i = 0; i < size; ++i) {
+		vec[i] = value;
 	}
 }
 
@@ -42,6 +52,15 @@ void SetVelocity(MESH_NODE_ATTR<T, dim>& nodeAttr, VECTOR<T, dim>& init_v)
 	nodeAttr.Par_Each([&](int id, auto data) {
 		auto &[x0, v, g, m] = data;
 		v = init_v;
+	});
+}
+
+template <class T, int dim>
+void ComputeVelocity(MESH_NODE_ATTR<T, dim>& nodeAttr, MESH_NODE<T, dim>& X0, MESH_NODE<T, dim>& X1, T h)
+{
+	nodeAttr.Join(X0, X1).Par_Each([&](int id, auto data) {
+		auto &[x, v, g, m, x0, x1] = data;
+		v = (x1 - x0) / h;
 	});
 }
 
@@ -140,6 +159,21 @@ void vector_to_node(const Eigen::VectorXd& vec, MESH_NODE<T, dim>& node)
 			x[d] = vec[idx * dim + d];
 		}
 	});
+}
+
+template <class T, int dim>
+void Read_Obj(MESH_NODE<T, dim>& X, const std::string& filepath, int n_frame)
+// filepath = path_to_obj
+{
+	for (int fi = 2; fi < n_frame + 2; ++fi) {
+		std::string filename = filepath + "shell" + std::to_string(fi) + ".obj";
+
+		MESH_NODE<T, dim> x;
+		MESH_ELEM<dim - 1> elem;
+		Read_TriMesh_Obj<T, dim>(filename, x, elem);
+
+		SetFrame(fi - 2, X, x);
+	}
 }
 
 template <class T, int dim>
@@ -250,7 +284,9 @@ void Export_Control_Utils(py::module& m)
 {
 	m.def("Fill", &Fill<double, 3>);
 	m.def("Fill", &Fill<double, 4>);
+	m.def("Fill_Std", &Fill_Std<double>);
 	m.def("SetVelocity", &SetVelocity<double, 3>);
+	m.def("ComputeVelocity", &ComputeVelocity<double, 3>);
 	m.def("GetFrame", &GetFrame<double, 3>);
 	m.def("SetFrame", &SetFrame<double, 3>);
 	m.def("Reduce", &Reduce<double, 3>);
@@ -258,6 +294,7 @@ void Export_Control_Utils(py::module& m)
 	m.def("Copy", &Copy<double, 3>);
 	m.def("Copy", &Copy<double, 4>);
 	m.def("Scale", &Scale<double, 3>);
+	m.def("Read_Obj", &Read_Obj<double, 3>);
 	m.def("Read", &Read<double, 3>);
 	m.def("Write", &Write<double, 3>);
 	m.def("Print", &Print<double, 3>);

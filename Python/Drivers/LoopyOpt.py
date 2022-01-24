@@ -20,13 +20,13 @@ from collections import deque
 from JGSL import *
 
 class LoopyOpt:
-	def __init__(self, sim, opt_param="trajecoty", constrain_form="hard", opt_med="GD") -> None:
+	def __init__(self, sim, opt_param="trajectory", constrain_form="hard", opt_med="GD") -> None:
 		"""
 		sim: simulation base
 		param_med: force, trajectory
 		opt_med: GD (gradient descent_, L-BFGS, GN (Gauss-Newton), and FP (fast projection) (force-based only)
 		"""
-		self.b_debug = True
+		self.b_debug = False
 		self.sim = sim
 		self.opt_param = opt_param
 		self.constrain_form = constrain_form
@@ -43,6 +43,7 @@ class LoopyOpt:
 		self.M = self.sim.massMatrix
 		
 		# optimization params
+		self.p_epoch = 1
 		self.n_epoch = 100
 		self.n_force_epoch = 0
 		self.n_trajectory_epoch = 0
@@ -51,21 +52,19 @@ class LoopyOpt:
 		self.L = 0.0 # hard constrain
 		self.p = 2  # p-norm
 		self.minmax = False
-		self.init_med = "fix"  # for trajectory only: solve (0 loopy loss), fix (0 constrain loss)
-		self.load_path = ""
 		self.use_cg = False  # for trajectory only, direct or pcg
 		self.cg_iter = 1000
 		self.cg_tol = 0.1
 		self.cg_regu = 1e-6
 
 		# storage
-		self.X0 = Storage.V3dStorage()
-		self.X1 = Storage.V3dStorage()
-		self.init_DBC = Storage.V4dStorage()
+		self.X0 = self.sim.X0
+		self.X1 = self.sim.X1
 		self.one_frame = Storage.V3dStorage()
 		self.trajectory = Storage.V3dStorage()
 		self.loopy_trajectory = Storage.V3dStorage()
 		self.control_force = Storage.V3dStorage()
+		self.weight = StdVectorXd()
 		# line-search
 		self.alpha = 1.0
 		self.gradient = Storage.V3dStorage()
@@ -94,6 +93,10 @@ class LoopyOpt:
 		self.valid = True
 		self.loopy_loss = 0.0
 
+		# input
+		self.init_med = "fix"  # for trajectory only: solve (0 loopy loss), fix (0 constrain loss)
+		self.load_path = ""
+		self.load_epoch = 0
 		# output
 		self.output_folder = "output/" + os.path.splitext(os.path.basename(sys.argv[0]))[0] + "/"
 		make_directory(self.output_folder)
@@ -109,8 +112,6 @@ class LoopyOpt:
 	def initialize(self):
 		print(f"=============================== initialize ==============================")
 		# init data space
-		Control.Fill(self.X0, self.n_vert)
-		Control.Fill(self.X1, self.n_vert)
 		Control.Fill(self.one_frame, self.n_vert)
 		Control.Fill(self.control_force, self.n_vert * self.n_frame)
 		Control.Fill(self.trajectory, self.n_vert * self.n_frame)
@@ -120,11 +121,11 @@ class LoopyOpt:
 		Control.Fill(self.descent_dir, self.n_vert * self.n_frame)
 		Control.Fill(self.tentative, self.n_vert * self.n_frame)
 
-		Control.Fill(self.init_DBC, self.n_DBC)
-
 		Control.Fill(self.residual, self.n_frame * self.n_vert)
 		Control.Fill(self.hess_residual, self.n_frame * self.n_vert)
 		Control.Fill(self.loss_residual, self.n_frame * self.n_vert)
+
+		Control.Fill_Std(self.weight, self.n_frame, self.dt ** (2 * (self.p - 2)))
 
 		if self.opt_med == "L-BFGS":
 			Control.Fill(self.last_x, self.n_frame * self.n_vert)
@@ -138,11 +139,6 @@ class LoopyOpt:
 		self.sim.output_folder = init_folder
 
 		# compute initial loss
-		Control.Copy(self.sim.X, self.X0)
-		Control.Copy(self.sim.DBC, self.init_DBC)
-		self.sim.step(0)
-		Control.Copy(self.sim.X, self.X1)
-
 		if self.opt_param == "force":
 			self.forward(self.control_force)
 			Control.Copy(self.trajectory, self.loopy_trajectory)
@@ -153,7 +149,8 @@ class LoopyOpt:
 			print(f"[init] loss: {self.loss}, force: {self.force_loss}, constrain: {self.constrain_loss}, loopy: {self.loopy_loss}")
 		elif self.opt_param == "trajectory":
 			if self.init_med == "load":
-				Control.Read(self.trajectory, self.load_path) # read anyway
+				Control.Read_Obj(self.trajectory, self.load_path + f"epoch_{self.load_epoch}/", self.n_frame) # read anyway
+				print("load trajectory in ", self.load_path)
 			else:
 				self.forward(self.control_force)
 			Control.SetFrame(self.n_frame - 2, self.trajectory, self.X0)
@@ -171,21 +168,33 @@ class LoopyOpt:
 	def run(self):
 		start = time.time()
 		total_epoch = 0
-		for i in range(self.n_epoch):
-			total_epoch += 1
-			epoch_start = time.time()
-			if self.one_iter(i):
-				print("optimization converged: small alpha ", self.alpha)
-				break
-			print("epoch time: ", time.time() - epoch_start)
+		for pi in range(self.p_epoch):
+			# update W
+			if pi > 0:
+				Control.ComputeLoopyLoss(self.n_vert, self.n_frame, self.dt, self.p,
+					self.sim.DBC, self.sim.Elem, self.sim.segs, self.sim.edge2tri, self.sim.edgeStencil, self.sim.edgeInfo,
+					self.sim.thickness, self.sim.bendingStiffMult, self.sim.fiberStiffMult, self.sim.inextLimit, self.sim.s, self.sim.sHat, self.sim.kappa_s,
+					self.sim.bodyForce, self.sim.k_wind, self.sim.wind_dir, self.sim.withCollision, self.sim.dHat2, self.sim.kappa, self.sim.mu, self.sim.epsv2, self.sim.fricIterAmt, self.sim.compNodeRange, self.sim.muComp, 
+					self.sim.nodeAttr, self.sim.massMatrix, self.sim.elemAttr, self.sim.elasticity,
+					self.sim.tet, self.sim.tetAttr, self.sim.tetElasticity, self.sim.rod, self.sim.rodInfo, self.sim.rodHinge, self.sim.rodHingeInfo, 
+					self.sim.stitchInfo, self.sim.stitchRatio, self.sim.k_stitch, self.sim.discrete_particle,
+					self.X0, self.X1, self.trajectory, self.valid_per_frame, self.weight, self.loss_residual)
+				print(' '.join([str(x / self.dt ** (2 * (self.p - 2))) for x in self.weight]))
+				self.valid, self.loss = self.compute_trajectory_loss(self.trajectory)
+				self.output_loss()
+				print(f"[start beta_{pi}] valid: {self.valid}, loopy: {self.loopy_loss}, constrain: {self.constrain_loss}")
+
+			for i in range(self.n_epoch):
+				print(f"============================= epoch {pi}/{i} ({total_epoch}) ==========================")
+				epoch_start = time.time()
+				b_converge = self.one_iter(total_epoch)
+				total_epoch += 1
+				print("epoch time: ", time.time() - epoch_start)
+				if b_converge:
+					print("optimization converged: small alpha ", self.alpha)
 		end = time.time()
 		with open(self.output_folder + "loss.txt", 'a') as f:
 			f.write(f"total time: {end - start}, avg. time: {(end - start) / total_epoch}")
-
-		if not self.b_debug:
-			final_folder = self.output_folder + f"epoch_{total_epoch}/"
-			make_directory(final_folder)
-			self.output_trajectory(final_folder)
 
 	def alternate(self):
 		cur_epoch = 0
@@ -239,12 +248,7 @@ class LoopyOpt:
 	def forward(self, control_force):
 		""" update to self.trajectory """
 		print("[start forward]", end=" ", flush=True)
-		self.sim.t = 0.0
-		self.sim.PNIterCount = 0
-		Control.Copy(self.X0, self.sim.X)
-		Control.SetVelocity(self.sim.nodeAttr, self.sim.init_velocity)
-		Control.Copy(self.init_DBC, self.sim.DBC)
-
+		self.sim.reset()
 		self.sim.step(0) # skip X1
 
 		for i in range(self.n_frame):
@@ -256,11 +260,9 @@ class LoopyOpt:
 
 
 	def one_iter(self, cur_epoch):
-		print(f"============================= epoch {cur_epoch} ==========================")
-		if self.b_debug:
-			epoch_folder = self.output_folder + f"epoch_{cur_epoch}/"
-			make_directory(epoch_folder)
-			self.sim.output_folder = epoch_folder
+		epoch_folder = self.output_folder + f"epoch_{cur_epoch}/"
+		make_directory(epoch_folder)
+		self.sim.output_folder = epoch_folder
 
 		if self.opt_param == "force":
 			print("[compute adjoint vector]")
@@ -300,44 +302,44 @@ class LoopyOpt:
 				self.cg_iter = min(self.n_vert * self.n_frame * 3, self.cg_iter + 500)
 			if self.constrain_form == "hard":
 				if self.opt_med == "GN":
-					Control.ComputeTrajectoryGradientDescent(self.n_vert, self.n_frame, self.dt, self.p, self.epsilon, self.use_cg, self.cg_iter, self.cg_tol, self.cg_regu,
+					Control.ComputeTrajectoryGradientDescent(self.n_vert, self.n_frame, self.dt, self.epsilon, self.use_cg, self.cg_iter, self.cg_tol, self.cg_regu,
 						self.sim.DBC, self.sim.Elem, self.sim.segs, self.sim.edge2tri, self.sim.edgeStencil, self.sim.edgeInfo,
 						self.sim.thickness, self.sim.bendingStiffMult, self.sim.fiberStiffMult, self.sim.inextLimit, self.sim.s, self.sim.sHat, self.sim.kappa_s,
 						self.sim.bodyForce, self.sim.k_wind, self.sim.wind_dir, self.sim.withCollision, self.sim.dHat2, self.sim.kappa, self.sim.mu, self.sim.epsv2, self.sim.fricIterAmt, self.sim.compNodeRange, self.sim.muComp, 
 						self.sim.nodeAttr, self.sim.massMatrix, self.sim.elemAttr, self.sim.elasticity,
 						self.sim.tet, self.sim.tetAttr, self.sim.tetElasticity, self.sim.rod, self.sim.rodInfo, self.sim.rodHinge, self.sim.rodHingeInfo, 
 						self.sim.stitchInfo, self.sim.stitchRatio, self.sim.k_stitch, self.sim.discrete_particle,
-						self.X0, self.X1, self.trajectory, self.gradient, self.descent_dir, self.residual, self.hess_residual, self.A)
+						self.X0, self.X1, self.trajectory, self.gradient, self.descent_dir, self.residual, self.hess_residual, self.A, self.weight)
 				else:
-					Control.ComputeTrajectoryGradient(self.n_vert, self.n_frame, self.dt, self.p, self.epsilon, self.use_cg, self.cg_iter, self.cg_tol, self.cg_regu,
+					Control.ComputeTrajectoryGradient(self.n_vert, self.n_frame, self.dt, self.epsilon, self.use_cg, self.cg_iter, self.cg_tol, self.cg_regu,
 						self.sim.DBC, self.sim.Elem, self.sim.segs, self.sim.edge2tri, self.sim.edgeStencil, self.sim.edgeInfo,
 						self.sim.thickness, self.sim.bendingStiffMult, self.sim.fiberStiffMult, self.sim.inextLimit, self.sim.s, self.sim.sHat, self.sim.kappa_s,
 						self.sim.bodyForce, self.sim.k_wind, self.sim.wind_dir, self.sim.withCollision, self.sim.dHat2, self.sim.kappa, self.sim.mu, self.sim.epsv2, self.sim.fricIterAmt, self.sim.compNodeRange, self.sim.muComp, 
 						self.sim.nodeAttr, self.sim.massMatrix, self.sim.elemAttr, self.sim.elasticity,
 						self.sim.tet, self.sim.tetAttr, self.sim.tetElasticity, self.sim.rod, self.sim.rodInfo, self.sim.rodHinge, self.sim.rodHingeInfo, 
 						self.sim.stitchInfo, self.sim.stitchRatio, self.sim.k_stitch, self.sim.discrete_particle,
-						self.X0, self.X1, self.trajectory, self.gradient, self.descent_dir, self.residual, self.hess_residual, self.A)
+						self.X0, self.X1, self.trajectory, self.gradient, self.descent_dir, self.residual, self.hess_residual, self.A, self.weight)
 				if self.opt_med == "L-BFGS":
 					self.L_BFGS(cur_epoch, self.trajectory, self.gradient)
 			elif self.constrain_form == "soft":
 				if self.opt_med == "GN":
-					Control.ComputeTrajectoryGradientDescent_SoftCon(self.n_vert, self.n_frame, self.dt, self.p, self.epsilon, self.use_cg, self.cg_iter, self.cg_tol, self.cg_regu,
+					Control.ComputeTrajectoryGradientDescent_SoftCon(self.n_vert, self.n_frame, self.dt, self.epsilon, self.use_cg, self.cg_iter, self.cg_tol, self.cg_regu,
 						self.sim.DBC, self.sim.Elem, self.sim.segs, self.sim.edge2tri, self.sim.edgeStencil, self.sim.edgeInfo,
 						self.sim.thickness, self.sim.bendingStiffMult, self.sim.fiberStiffMult, self.sim.inextLimit, self.sim.s, self.sim.sHat, self.sim.kappa_s,
 						self.sim.bodyForce, self.sim.k_wind, self.sim.wind_dir, self.sim.withCollision, self.sim.dHat2, self.sim.kappa, self.sim.mu, self.sim.epsv2, self.sim.fricIterAmt, self.sim.compNodeRange, self.sim.muComp, 
 						self.sim.nodeAttr, self.sim.massMatrix, self.sim.elemAttr, self.sim.elasticity,
 						self.sim.tet, self.sim.tetAttr, self.sim.tetElasticity, self.sim.rod, self.sim.rodInfo, self.sim.rodHinge, self.sim.rodHingeInfo, 
 						self.sim.stitchInfo, self.sim.stitchRatio, self.sim.k_stitch, self.sim.discrete_particle,
-						self.X0, self.X1, self.trajectory, self.gradient, self.descent_dir, self.residual, self.hess_residual, self.A)
+						self.X0, self.X1, self.trajectory, self.gradient, self.descent_dir, self.residual, self.hess_residual, self.A, self.weight)
 				else:
-					Control.ComputeTrajectoryGradient_SoftCon(self.n_vert, self.n_frame, self.dt, self.p, self.epsilon, self.use_cg, self.cg_iter, self.cg_tol, self.cg_regu,
+					Control.ComputeTrajectoryGradient_SoftCon(self.n_vert, self.n_frame, self.dt, self.epsilon, self.use_cg, self.cg_iter, self.cg_tol, self.cg_regu,
 						self.sim.DBC, self.sim.Elem, self.sim.segs, self.sim.edge2tri, self.sim.edgeStencil, self.sim.edgeInfo,
 						self.sim.thickness, self.sim.bendingStiffMult, self.sim.fiberStiffMult, self.sim.inextLimit, self.sim.s, self.sim.sHat, self.sim.kappa_s,
 						self.sim.bodyForce, self.sim.k_wind, self.sim.wind_dir, self.sim.withCollision, self.sim.dHat2, self.sim.kappa, self.sim.mu, self.sim.epsv2, self.sim.fricIterAmt, self.sim.compNodeRange, self.sim.muComp, 
 						self.sim.nodeAttr, self.sim.massMatrix, self.sim.elemAttr, self.sim.elasticity,
 						self.sim.tet, self.sim.tetAttr, self.sim.tetElasticity, self.sim.rod, self.sim.rodInfo, self.sim.rodHinge, self.sim.rodHingeInfo, 
 						self.sim.stitchInfo, self.sim.stitchRatio, self.sim.k_stitch, self.sim.discrete_particle,
-						self.X0, self.X1, self.trajectory, self.gradient, self.descent_dir, self.residual, self.hess_residual, self.A,)
+						self.X0, self.X1, self.trajectory, self.gradient, self.descent_dir, self.residual, self.hess_residual, self.A, self.weight)
 				if self.opt_med == "L-BFGS":
 					self.L_BFGS(cur_epoch, self.trajectory, self.gradient)
 
@@ -346,8 +348,8 @@ class LoopyOpt:
 			print(f"valid: {self.valid}, loss: {self.loss}, loopy: {self.loopy_loss}, constrain: {self.constrain_loss}")
 
 		self.output_loss()
+		self.output_trajectory(epoch_folder)
 		if self.b_debug:
-			self.output_trajectory(epoch_folder)
 			self.output_debug_info(epoch_folder)
 
 		# TIMER_FLUSH(cur_epoch + 1, self.n_epoch, cur_epoch + 1, self.n_epoch)
@@ -408,6 +410,7 @@ class LoopyOpt:
 		if self.opt_med == "L-BFGS":
 			Control.Copy(self.control_force, self.last_x)
 			Control.Copy(self.gradient, self.last_g)
+
 		Control.Copy(self.tentative, self.control_force)
 		self.loss = loss
 
@@ -440,10 +443,10 @@ class LoopyOpt:
 			Control.Copy(self.gradient, self.last_g)
 
 		Control.Copy(self.tentative, self.trajectory)
-
+		b_small_loss_update = abs(self.loss - loss) / self.loss < 1e-6
 		self.valid, self.loss = valid, loss
 
-		return self.alpha < 1e-6 * start_alpha
+		return self.alpha < 1e-6 * start_alpha or b_small_loss_update
 
 	def fast_projection(self):
 		print("[fast projection]")
@@ -466,7 +469,7 @@ class LoopyOpt:
 			return self.force_loss + self.L * self.constrain_loss
 
 	def compute_trajectory_loss(self, trajectory, b_con=True):
-		valid = Control.ComputeLoopyLoss(self.n_vert, self.n_frame, self.dt, self.p,
+		valid = Control.ComputeLoopyLoss(self.n_vert, self.n_frame, self.dt, 2,
 			self.sim.DBC, self.sim.Elem, self.sim.segs, self.sim.edge2tri, self.sim.edgeStencil, self.sim.edgeInfo,
 			self.sim.thickness, self.sim.bendingStiffMult, self.sim.fiberStiffMult, self.sim.inextLimit, self.sim.s, self.sim.sHat, self.sim.kappa_s,
 			self.sim.bodyForce, self.sim.k_wind, self.sim.wind_dir, self.sim.withCollision, self.sim.dHat2, self.sim.kappa, self.sim.mu, self.sim.epsv2, self.sim.fricIterAmt, self.sim.compNodeRange, self.sim.muComp, 
@@ -476,10 +479,9 @@ class LoopyOpt:
 			self.X0, self.X1, trajectory, self.valid_per_frame, self.loss_per_frame, self.loss_residual)
 		
 		self.loopy_loss = 0.0
-		if valid:
-			for i in range(len(self.loss_per_frame)):
-				self.loss_per_frame[i] /= self.dt ** 4
-				self.loopy_loss += self.loss_per_frame[i]
+		for i in range(len(self.loss_per_frame)):
+			self.loss_per_frame[i] /= self.dt ** 4
+			self.loopy_loss += self.loss_per_frame[i] * self.weight[i] / self.dt ** (2 * (self.p - 2))
 		
 		if b_con:
 			self.constrain_loss = Control.ComputeConstrain(self.n_vert, self.n_frame, self.sim.massMatrix, self.X0, self.X1, trajectory)
@@ -499,10 +501,6 @@ class LoopyOpt:
 		for i in range(self.n_frame):
 			Control.GetFrame(i, self.trajectory, self.sim.X)
 			self.sim.write(i + 2)
-
-		# write .txt
-		if self.opt_param == "force":
-			Control.Write(self.trajectory, epoch_folder + "trajectory.txt")
 
 	def output_loss(self):
 		with open(self.output_folder + "loss.txt", 'a') as f:

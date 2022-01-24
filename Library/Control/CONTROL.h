@@ -73,6 +73,29 @@ void ComputeAdjointVector(
 #endif
 		{
 		TIMER_FLAG("Compute Hessian and RHS");
+				// prepare DBC ===============================================================================================
+		std::vector<bool> DBCb(X.size, false);
+		std::vector<bool> DBCb_fixed(X.size, false);
+		std::vector<T> DBCDisp(X.size * dim, T(0));
+		DBC.Each([&](int id, auto data) {
+			auto &[dbcI] = data;
+			int vI = dbcI(0);
+			const VECTOR<T, dim> &x = std::get<0>(X.Get_Unchecked(vI));
+			const VECTOR<T, dim> &xn = std::get<0>(Xn.Get_Unchecked(vI));
+
+			bool fixed = true;
+			for (int d = 0; d < dim; ++d) {
+				dbcI[d + 1] = x[d];
+				DBCDisp[dim * vI + d] = x[d] - xn[d];
+				if (!DBCDisp[dim * vI + d]) fixed = false;
+			}
+			DBCb_fixed[vI] = fixed;
+			DBCb[vI] = true;
+		});
+		T DBCStiff = 0; // we don't compute control force on boundary
+#ifdef VERBOSE
+		std::cout << "DBC handled" << std::endl;
+#endif
 		// preapre hessian
 		// prepare X, Xn, and Xtilde, set [v] in nodeAttr =======================================================
 		GetFrame<T, dim>(i, trajctory, X);
@@ -100,6 +123,16 @@ void ComputeAdjointVector(
 			}
 		});
 
+		if (k_wind > 0) {
+			Compute_Wind_Force<T, dim>(k_wind, wind_dir, DBCb, Elem, elasticityAttr, Xn, force);
+			force.Par_Each([&](int idx, auto data) {
+				auto &[f] = data;
+				for (int d = 0; d < dim; ++d) {
+					f_ext[idx * dim + d] += f[d];
+				}
+			});
+		}
+
 		if (!Solve_Direct(M, f_ext, a)) {
 			std::cout << "mass matrix factorization failed!" << std::endl;
 			exit(-1);
@@ -115,30 +148,6 @@ void ComputeAdjointVector(
 			auto &[x0, v, g, m, x, xn] = data;
 			v = (x - xn) / h;
 		});
-
-		// prepare DBC ===============================================================================================
-		std::vector<bool> DBCb(X.size, false);
-		std::vector<bool> DBCb_fixed(X.size, false);
-		std::vector<T> DBCDisp(X.size * dim, T(0));
-		DBC.Each([&](int id, auto data) {
-			auto &[dbcI] = data;
-			int vI = dbcI(0);
-			const VECTOR<T, dim> &x = std::get<0>(X.Get_Unchecked(vI));
-			const VECTOR<T, dim> &xn = std::get<0>(Xn.Get_Unchecked(vI));
-
-			bool fixed = true;
-			for (int d = 0; d < dim; ++d) {
-				dbcI[d + 1] = x[d];
-				DBCDisp[dim * vI + d] = x[d] - xn[d];
-				if (!DBCDisp[dim * vI + d]) fixed = false;
-			}
-			DBCb_fixed[vI] = fixed;
-			DBCb[vI] = true;
-		});
-		T DBCStiff = 0; // we don't compute control force on boundary
-#ifdef VERBOSE
-		std::cout << "DBC handled" << std::endl;
-#endif
 
 		// prepare contact promitives and areas =================================================================
 		std::vector<int> boundaryNode;
@@ -247,11 +256,7 @@ void ComputeAdjointVector(
 		// if (k_wind > 0) {
 		// 	std::vector<Eigen::Triplet<T>> wind_triplets;
 		// 	Compute_Wind_Hessian<T, dim>(k_wind, wind_dir, DBCb, Elem, elasticityAttr, X, wind_triplets);
-		// 	std::vector<Eigen::Triplet<T>> triplets;
-		// 	Add_Block(sysMtr.Get_Matrix(), triplets, 0, 0);
-		// 	Add_Block(wind_triplets, triplets, 0, 0, -h * h);
-		// 	sysMtr.Construct_From_Triplet(n_vert * dim, n_vert * dim, triplets);
-		// 	sysMtr.Get_Matrix() = sysMtr.Get_Matrix().transpose();
+		// 	H_wind.Construct_From_Triplet(n_vert * dim, n_vert * dim, wind_triplets);
 		// }
 		
 		if (i == n_frame - 1) {
@@ -345,7 +350,7 @@ T ComputeConstrain(
 
 template <class T, int dim, bool KL=false, bool elasticIPC=false, bool flow=false>
 bool ComputeLoopyLoss(
-	int n_vert, int n_frame, T h, int p, // p-norm
+	int n_vert, int n_frame, T h, int p,
 	VECTOR_STORAGE<T, dim + 1>& DBC,
 	MESH_ELEM<dim - 1>& Elem,
 	const std::vector<VECTOR<int, 2>>& seg,
@@ -566,12 +571,11 @@ bool ComputeLoopyLoss(
 			T loss = 0.0;
 			nodeAttr.Each([&](int idx, auto data) {
 				auto &[x0, v, g, m] = data;
-				if (p == 2) {
-					loss += 0.5 * g.length2();
-				}
+				if (p == 2)
+					loss += g.length2();
 				else {
-					for (int d = 0; d < dim; ++d) {
-						loss += 1.0 / p * std::pow(std::abs(g[d]), p);
+					for (int d = 0;d < dim; ++d) {
+						loss += std::pow(std::fabs(g[d]), p - 2);
 					}
 				}
 				std::get<0>(residual.Get_Unchecked(i * n_vert + idx)) = g;
@@ -591,7 +595,7 @@ bool ComputeLoopyLoss(
 
 template <class T, int dim, bool SC, bool GN, bool KL=false, bool elasticIPC=false, bool flow=false>
 void ComputeTrajectoryGradient(
-	int n_vert, int n_frame, T h, int p, T epsilon, bool use_cg, int cg_iter, T cg_tol, T regu,
+	int n_vert, int n_frame, T h, T epsilon, bool use_cg, int cg_iter, T cg_tol, T regu,
 	VECTOR_STORAGE<T, dim + 1>& DBC,
 	MESH_ELEM<dim - 1>& Elem,
 	const std::vector<VECTOR<int, 2>>& seg,
@@ -631,7 +635,8 @@ void ComputeTrajectoryGradient(
 	MESH_NODE<T, dim>& descent_dir,
 	MESH_NODE<T, dim>& residual,
 	MESH_NODE<T, dim>& hess_res,
-	CSR_MATRIX<T>& A)
+	CSR_MATRIX<T>& A,
+	const std::vector<T>& weight)
 {
 	T kappa[] = {kappaVec[0], kappaVec[1], kappaVec[2]};
 
@@ -646,7 +651,6 @@ void ComputeTrajectoryGradient(
 
 	SetZero(gradient);
 	std::vector<Eigen::Triplet<T>> triplets;
-	std::vector<Eigen::Triplet<T>> dx_triplets(n_frame * n_vert * dim);
 	std::vector<bool> global_DBCb(n_frame * n_vert, false);
 
 	std::vector<CSR_MATRIX<T>> sysMtr_list(n_frame);
@@ -810,18 +814,7 @@ void ComputeTrajectoryGradient(
 		// accumulate to residual
 		nodeAttr.Join(force).Par_Each([&](int idx, auto data) {
 			auto &[x0, v, g, m, f_wind] = data;
-
-			VECTOR<T, dim>& res = std::get<0>(residual.Get_Unchecked(i * n_vert + idx));
-			VECTOR<T, dim> total_g = g - h * h * f_wind;
-
-			for (int d = 0; d < dim; ++d) {
-				if (p == 2) {
-					res[d] = total_g[d];
-				}
-				else {
-					res[d] = total_g[d] * std::pow(std::abs(total_g[d]), p - 2);
-				}
-			}
+			std::get<0>(residual.Get_Unchecked(i * n_vert + idx)) = g - h * h * f_wind;
 		});
 
 		// compute hessian
@@ -847,16 +840,6 @@ void ComputeTrajectoryGradient(
 			Add_Block(wind_triplets, triplets, (i - 1 + n_frame) % n_frame * n_vert * dim, i * n_vert * dim, -h * h, true);
 		}
 
-		if (p > 2) {
-			nodeAttr.Par_Each([&](int idx, auto data) {
-				auto &[x0, v, g, m] = data;
-				int base = i * n_vert * dim + idx * dim;
-				for (int d = 0; d < dim; ++d) {
-					dx_triplets[base + d] = Eigen::Triplet<T>(base + d, base + d, (p - 1) * std::pow(std::abs(g[d]), p - 2));
-				} 
-			});
-		}
-
 // #define ADJOINT_SOLVER
 #ifdef ADJOINT_SOLVER
 		sysMtr.Project_DBC(DBCb, 3);
@@ -869,9 +852,16 @@ void ComputeTrajectoryGradient(
 	A.Construct_From_Triplet(n_frame * n_vert * dim, n_frame * n_vert * dim, triplets);
 	printf("AT nonzeros: %d\n", A.Get_Matrix().nonZeros());
 
+	std::vector<Eigen::Triplet<T>> W_triplets(n_frame * n_vert * dim);
+	for (int i = 0; i < n_frame * n_vert * dim; ++i) {
+		W_triplets[i] = Eigen::Triplet<T>(i, i, weight[i / (n_vert * dim)]);
+	}
+	CSR_MATRIX<T> W;
+	W.Construct_From_Triplet(n_frame * n_vert * dim, n_frame * n_vert * dim, W_triplets);
+
 	Eigen::VectorXd eigen_residual(n_frame * n_vert * dim);
 	node_to_eigen(residual, eigen_residual);
-	Eigen::VectorXd eigen_gradient = A.Get_Matrix() * eigen_residual;
+	Eigen::VectorXd eigen_gradient = A.Get_Matrix() * W.Get_Matrix() * eigen_residual;
 	eigen_to_node(eigen_gradient, gradient);
 
 	// for visualization
@@ -914,14 +904,7 @@ void ComputeTrajectoryGradient(
 #ifndef ADJOINT_SOLVER
 
 		CSR_MATRIX<T> H;
-		if (p == 2) {
-			H.Get_Matrix() = (A.Get_Matrix() * A.Get_Matrix().transpose()).pruned(1e-6);
-		}
-		else {
-			CSR_MATRIX<T> d2X;
-			d2X.Construct_From_Triplet(n_frame * n_vert * dim, n_frame * n_vert * dim, dx_triplets);
-			H.Get_Matrix() = (A.Get_Matrix() * d2X.Get_Matrix() * A.Get_Matrix().transpose()).pruned(1e-6);
-		}
+		H.Get_Matrix() = A.Get_Matrix() * W.Get_Matrix() * A.Get_Matrix().transpose();
 		printf("ATA nonzeros: %d\n", H.Get_Matrix().nonZeros());
 
 		if constexpr (SC) {

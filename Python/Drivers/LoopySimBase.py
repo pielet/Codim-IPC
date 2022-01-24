@@ -52,6 +52,7 @@ class LoopySimBase:
         self.update_offset = None
 
         self.X0 = Storage.V2dStorage() if self.dim == 2 else Storage.V3dStorage()
+        self.X1 = Storage.V2dStorage() if self.dim == 2 else Storage.V3dStorage()
         self.X = Storage.V2dStorage() if self.dim == 2 else Storage.V3dStorage()
         self.X_stage = Storage.V2dStorage() if self.dim == 2 else Storage.V3dStorage()
         self.Elem = Storage.V2iStorage() if self.dim == 2 else Storage.V3iStorage()
@@ -62,6 +63,7 @@ class LoopySimBase:
         self.elemAttr = Storage.M2dM2dSdStorage()
         self.elasticity = FIXED_COROTATED_2.Create() #TODO: different material switch
         self.DBC = Storage.V3dStorage() if self.dim == 2 else Storage.V4dStorage()
+        self.init_DBC = Storage.V3dStorage() if self.dim == 2 else Storage.V4dStorage()
         self.gravity = self.Vec(0, -9.81) if self.dim == 2 else self.Vec(0, -9.81, 0)
         self.bodyForce = StdVectorXd()
         self.edge2tri = StdMapPairiToi()
@@ -213,6 +215,7 @@ class LoopySimBase:
 
     def add_plane(self, p, mu, kn, kf, origin, normal):
         Control.Add_Plane(p, mu, kn, kf, origin, normal, self.planes)
+        print("add plane")
 
     def initialize(self, clothI, b_SL, membEMult=0.01, bendEMult=1, b_gravity=True):
         MeshIO.Append_Attribute(self.X, self.X0)
@@ -249,20 +252,25 @@ class LoopySimBase:
         self.elasticIPC = False
         self.thickness = offset
 
-    def load_frame(self, filePath):
-        newX = Storage.V2dStorage() if self.dim == 2 else Storage.V3dStorage()
-        newElem = Storage.V2iStorage() if self.dim == 2 else Storage.V3iStorage()
-        MeshIO.Read_TriMesh_Obj(filePath, newX, newElem)
-        self.X = newX
-        # self.Elem = newElem
-        FEM.Reset_Dirichlet(self.X, self.DBC)
-    
-    def load_velocity(self, folderPath, lastFrame, h):
-        MeshIO.Load_Velocity(folderPath, lastFrame, h, self.nodeAttr)
+    def load_initial_state(self, init_path, frame_idx):
+        self.X0 = Storage.V2dStorage() if self.dim == 2 else Storage.V3dStorage()
+        tmp_elem = Storage.V2iStorage() if self.dim == 2 else Storage.V3iStorage()
+        MeshIO.Read_TriMesh_Obj(init_path + "shell" + str(frame_idx) + ".obj", self.X0, tmp_elem)
+        MeshIO.Read_TriMesh_Obj(init_path + "shell" + str(frame_idx + 1) + ".obj", self.X1, tmp_elem)
+        self.reset()
+
+    def reset(self):
+        self.t = 0.0
+        self.PNIterCount = 0
+        Control.Copy(self.X0, self.X)
+        Control.Copy(self.init_DBC, self.DBC)
+        Control.ComputeVelocity(self.nodeAttr, self.X0, self.X1, self.dt)
 
     def set_DBC(self, DBC_bbox_min, DBC_bbox_max, idx_range=Vector4i(0, 0, 1000000000, -1)):
         DBC_range = Control.Set_Dirichlet(self.X, DBC_bbox_min, DBC_bbox_max, self.DBC, idx_range)
         self.n_DBC = DBC_range[1]
+        Control.Fill(self.init_DBC, self.n_DBC)
+        Control.Copy(self.DBC, self.init_DBC)
         return DBC_range
 
     def add_motion(self, begin, end, DBC_range, dist, rotCenter, rotAxis, angle, ease_ratio=0.2):
@@ -319,4 +327,4 @@ class LoopySimBase:
             MeshIO.Write_SegMesh_Obj(self.X, self.rod, self.output_folder + "rod" + str(frame_idx) + ".obj")
         if self.withVol:
             MeshIO.Write_Surface_TriMesh_Obj(self.X, self.TriVI2TetVI, self.Tri, \
-                    self.output_folder + "vol" + str(frame_idx) + ".obj")
+                    self.output_folder + "surface" + str(frame_idx) + ".obj")

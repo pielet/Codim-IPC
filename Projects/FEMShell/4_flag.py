@@ -35,8 +35,9 @@ if __name__ == "__main__":
     else:
         # iso, no strain limit
         sim.initialize(cloth_material, False, membEMult, bendEMult)
-
     sim.initialize_OIPC(1e-3, 0)
+
+    sim.load_initial_state("output/" + sys.argv[0].split('.')[0] + "/forward/", 60)
 
     if not b_opt:
         sim.run()
@@ -47,26 +48,20 @@ if __name__ == "__main__":
         opt_med = sys.argv[3]
 
         opt = Drivers.LoopyOpt(sim, opt_param, constrain_type, opt_med)
-        if len(sys.argv) > 4:
-            opt.init_med = sys.argv[4]
-        opt.load_path = "output/" + sys.argv[0].split('.')[0] + "/trajectory.txt"
+
+        opt.b_debug = False
 
         if opt_param == "force":
-            opt.n_epoch = 50
-            opt.epsilon = 1e-4
-            opt.alpha = 1e-5
+            opt.n_epoch = 100
+            opt.epsilon = 10
+            opt.alpha = 1e-8
         elif opt_param == "trajectory":
-            opt.n_epoch = 1
-            opt.epsilon = -1
+            if len(sys.argv) > 4:
+                opt.init_med = sys.argv[4]
+                opt.load_path = "output/" + sys.argv[0].split('.')[0] + "/trajectory_soft_GN_load_300/"
+                opt.load_epoch = 299
+            opt.n_epoch = 500
+            opt.epsilon = 0
 
         opt.initialize()
         opt.run()
-
-        # alternate
-        # opt = Drivers.LoopyOpt(sim, "force", "soft", "GD")
-        # opt.n_alternate = 2
-        # opt.n_force_epoch = 50
-        # opt.n_trajectory_epoch = 100
-
-        # opt.initialize()
-        # opt.alternate()
